@@ -121,7 +121,8 @@ private:
     // Cabinet: kernels are built on the message thread and handed to the audio thread through
     // `pendingKernel`; it reports the one it took in `takenKernel`. `kernels` (guarded by
     // kernelLock) owns them in the order they were handed over, and keeps the last two taken (one
-    // may still be fading out) plus anything not yet taken.
+    // may still be fading out) plus anything not yet taken. That's enough only because the audio
+    // thread takes a kernel once the cab has finished switching to the previous one.
     mutable std::mutex kernelLock;
     std::vector<std::unique_ptr<dustify::ConvolutionKernel>> kernels;
     std::atomic<dustify::ConvolutionKernel*> pendingKernel { nullptr };

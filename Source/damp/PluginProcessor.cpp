@@ -81,7 +81,8 @@ void DampAudioProcessor::rebuildCab (bool force)
         std::erase_if (kernels, [untaken] (const auto& k) { return k.get() == untaken; });
 
     // Free what the audio thread has finished with: everything before the kernel it took last
-    // but one
+    // but one (it takes a kernel only once the cab has finished switching to the one before:
+    // see processBlock)
     const auto* taken = takenKernel.load();
     const auto it = std::find_if (kernels.begin(), kernels.end(), [taken] (const auto& k) { return k.get() == taken; });
     if (it != kernels.end() && it != kernels.begin())
@@ -455,11 +456,16 @@ void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     if (tuning)
         feedTuner (buffer, numInputs);
 
-    if (auto* kernel = pendingKernel.exchange (nullptr))
-    {
-        rig.setCabKernel (kernel);
-        takenKernel = kernel;
-    }
+    // One kernel at a time: the cab switches at its next 64-sample boundary and then crossfades,
+    // reading the kernel before until it's done, and rebuildCab() frees all but the last two
+    // taken. Taking another sooner (e.g. two in blocks shorter than 64 samples) could leave the
+    // cab playing a freed one. A newer kernel waits in pendingKernel meanwhile.
+    if (! rig.cabSwitching())
+        if (auto* kernel = pendingKernel.exchange (nullptr))
+        {
+            rig.setCabKernel (kernel);
+            takenKernel = kernel;
+        }
 
     double bpm = 120.0;
     if (auto* host = getPlayHead())

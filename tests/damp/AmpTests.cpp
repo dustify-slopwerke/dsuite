@@ -6,6 +6,7 @@
 #include "dsp/ToneStack.h"
 #include "dsp/Triode.h"
 #include "dsp/Preset.h"
+#include "dsp/Rig.h"
 
 #include "common/dsp/Convolver.h"
 #include "common/dsp/Noise.h"
@@ -16,11 +17,13 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/generators/catch_generators_range.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <numbers>
 
 using namespace damp;
@@ -600,6 +603,78 @@ TEST_CASE ("convolver switches kernels with a crossfade and full history", "[cab
     CHECK (before < 2.0e-4);
     CHECK (after < 2.0e-4);
     CHECK (jump < 1.5 * std::max (typicalJump, 1.0e-3)); // no click at the switch
+}
+
+// The plugin builds cab kernels on the message thread and hands them to the audio thread one at a
+// time, freeing all but the last two it took (see DampAudioProcessor::rebuildCab and
+// processBlock). The cab switches only at its next 64-sample boundary and then crossfades, so with
+// short host blocks a kernel freed that way could still be playing (pluginval caught a
+// use-after-free with 32-sample blocks). Here "freeing" poisons a kernel with NaN, so any read of
+// one shows in the output.
+TEST_CASE ("the rig never reads a cab kernel the plugin has freed", "[cab][convolver]")
+{
+    const int block = GENERATE (1, 16, 32, 63, 100);
+    INFO ("block size " << block);
+    const auto poison = std::vector<float> (2000, std::numeric_limits<float>::quiet_NaN());
+    const dustify::ConvolutionKernel poisoned (poison.data(), (int) poison.size());
+    std::vector<std::unique_ptr<dustify::ConvolutionKernel>> made;
+    for (uint32_t i = 0; i < 150; ++i)
+    {
+        const auto h = noise (2000, 100 + i, 200.0f);
+        made.push_back (std::make_unique<dustify::ConvolutionKernel> (h.data(), (int) h.size()));
+    }
+
+    Rig rig;
+    auto patch = Patch::defaults();
+    patch[PID::Model] = (float) AmpModel::Clean;
+    patch[PID::GateOn] = 0.0f;
+    rig.setPatch (patch);
+    rig.prepare (rate, 2000);
+    rig.setCabKernelNow (made[0].get());
+
+    std::vector<dustify::ConvolutionKernel*> handedOver { made[0].get() }; // in order (the plugin's `kernels`)
+    dustify::ConvolutionKernel* pending = nullptr;
+    const dustify::ConvolutionKernel* taken = made[0].get();
+    size_t next = 1;
+    int takes = 0;
+    auto in = noise (48000, 7);
+    std::vector<float> left ((size_t) block), right ((size_t) block);
+    for (size_t pos = 0; pos + (size_t) block <= in.size(); pos += (size_t) block)
+    {
+        // Message thread: new kernels in bursts (each replacing one not yet taken); everything
+        // before the last one taken but one is freed
+        if (next < made.size() && pos % 1000 < 3 * (size_t) block)
+        {
+            if (pending != nullptr)
+                handedOver.pop_back();
+            pending = made[next++].get();
+            handedOver.push_back (pending);
+        }
+        const auto it = std::find (handedOver.begin(), handedOver.end(), taken);
+        if (it != handedOver.end() && it != handedOver.begin())
+        {
+            for (auto at = handedOver.begin(); at != it - 1; ++at)
+                **at = poisoned;
+            handedOver.erase (handedOver.begin(), it - 1);
+        }
+
+        // Audio thread, as processBlock
+        if (! rig.cabSwitching() && pending != nullptr)
+        {
+            rig.setCabKernel (pending);
+            taken = pending;
+            pending = nullptr;
+            ++takes;
+        }
+        std::copy_n (in.begin() + (std::ptrdiff_t) pos, block, left.begin());
+        std::copy_n (in.begin() + (std::ptrdiff_t) pos, block, right.begin());
+        const bool monoInput = (pos / 4800) % 3 == 1; // the right cab sits out now and then
+        rig.process (left.data(), right.data(), block, monoInput);
+        for (int i = 0; i < block; ++i)
+            if (! std::isfinite (left[(size_t) i]) || ! std::isfinite (right[(size_t) i]))
+                FAIL ("a freed kernel was read at sample " << pos + (size_t) i);
+    }
+    CHECK (takes >= 15); // kernels kept coming through
 }
 
 TEST_CASE ("modelled cabinets sound like their descriptions", "[cab]")

@@ -116,11 +116,24 @@ jobs:
 
       - name: pluginval (VST3, strictness 10)
         run: |
+          # pluginval 1.0.4's bundled JUCE can segfault in its own run loop when a plugin
+          # instance is torn down (fixed in later JUCE). A run killed by a signal is retried
+          # once and flagged; a failed test (exit 1) or a second crash fails the job.
+          validate() {
+            ./validators/pluginval --strictness-level 10 --skip-gui-tests --validate-in-process \
+              --output-dir "build/pluginval-logs" --validate "build/$1_artefacts/Release/VST3/$1.vst3"
+          }
           for p in $PLUGINS; do
             echo "::group::pluginval $p"
-            ./validators/pluginval --strictness-level 10 --skip-gui-tests --validate-in-process \
-              --output-dir "build/pluginval-logs" --validate "build/${p}_artefacts/Release/VST3/$p.vst3"
+            status=0
+            validate "$p" || status=$?
+            if [ "$status" -gt 128 ]; then
+              echo "::warning::pluginval crashed on $p (exit $status), retrying once"
+              status=0
+              validate "$p" || status=$?
+            fi
             echo "::endgroup::"
+            [ "$status" -eq 0 ] || exit "$status"
           done
 
       - name: clap-validator

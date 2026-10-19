@@ -48,12 +48,20 @@ public:
     void prepare (int maxLength, int crossfadeSamples);
     void reset();
 
-    // Audio thread. nullptr passes the signal straight through. The kernel must stay alive until
-    // a later one has finished fading in.
+    // Audio thread. nullptr passes the signal straight through. The switch waits for the next
+    // block boundary, then crossfades: the kernel in use before it is read until then, and must
+    // stay alive until isSwitching() is false. Another setKernel before that replaces the
+    // pending one (which is then never read) but doesn't hurry the switch: a kernel freed as
+    // soon as a newer one was handed over may still be playing.
     void setKernel (const ConvolutionKernel* k) { pending = k; hasPending = true; }
     // Switches at once, no crossfade (before processing starts, or after reset())
     void setKernelNow (const ConvolutionKernel* k);
     bool isFading() const { return fadeLeft > 0; }
+    // A kernel is waiting for the block boundary, or still fading in: until neither, the one
+    // before it is still read
+    bool isSwitching() const { return hasPending || fadeLeft > 0; }
+    // The kernel it plays once any switch is done
+    const ConvolutionKernel* latestKernel() const { return hasPending ? pending : kernel; }
 
     void process (float* io, int n);
 

@@ -67,6 +67,12 @@ void Rig::setCabKernelNow (const dustify::ConvolutionKernel* k)
 {
     for (auto& c : cab)
         c.setKernelNow (k);
+    rightCabIdle = false;
+}
+
+bool Rig::cabSwitching() const
+{
+    return cab[0].isSwitching() || (! rightCabIdle && cab[1].isSwitching());
 }
 
 void Rig::process (float* left, float* right, int n, bool monoInput)
@@ -87,9 +93,22 @@ void Rig::processChunk (float* left, float* right, int n, bool monoInput)
     amp.process (left, stereoAmp ? right : nullptr, n);
     cab[0].process (left, n);
     if (stereoAmp)
+    {
+        if (rightCabIdle)
+        {
+            // It may still point at kernels freed while it sat out: catch up with the left one
+            cab[1].reset();
+            cab[1].setKernelNow (cab[0].latestKernel());
+            rightCabIdle = false;
+        }
         cab[1].process (right, n);
-    else if (right != nullptr)
-        std::copy_n (left, n, right);
+    }
+    else
+    {
+        rightCabIdle = true;
+        if (right != nullptr)
+            std::copy_n (left, n, right);
+    }
 
     pedals.processAfterAmp (left, right, n, rate);
 

@@ -36,9 +36,12 @@ public:
     void prepare (double sampleRate, int maxImpulseLength);
     void reset();
 
-    // Cab impulse response (see Convolver): crossfaded in, or at once before processing starts
+    // Cab impulse response (see Convolver): crossfaded in, or at once before processing starts.
+    // While cabSwitching(), the kernel before the last one handed over may still be read: hand
+    // over a newer one only once it's false, so that only the last two need to stay alive.
     void setCabKernel (const dustify::ConvolutionKernel* k);
     void setCabKernelNow (const dustify::ConvolutionKernel* k);
+    bool cabSwitching() const;
 
     // In place. right == nullptr: mono in and out. monoInput with right != nullptr: the input is
     // in left only, and right receives the stereo output.
@@ -54,6 +57,7 @@ private:
     Board pedals;
     Looper loops;
     std::array<dustify::Convolver, 2> cab;
+    bool rightCabIdle = false; // the right cab sat out a mono block: it catches up when next used
     double rate = 48000.0;
     float smoothing = 1.0f;
     dustify::Smoother outputGain;
