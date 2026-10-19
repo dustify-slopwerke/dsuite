@@ -1,0 +1,8 @@
+build/
+build-*/
+.cache/
+compile_commands.json
+vgcore.*
+__pycache__/
+.deps/
+dist/

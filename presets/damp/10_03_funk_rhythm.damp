@@ -1,0 +1,14 @@
+# damp preset
+name = Funk Rhythm
+category = Clean
+model = Clean
+gain = 3
+bright = 1
+bass = 4
+middle = 3
+treble = 7
+presence = 7
+cab = 2x12 Open
+mic = Condenser
+mic_position = 0.2
+output_volume = -6

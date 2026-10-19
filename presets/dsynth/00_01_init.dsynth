@@ -1,0 +1,4 @@
+# Starting point: one saw, open filter, organ-style amp envelope
+name = Init
+category = Basics
+master_volume = -7.6

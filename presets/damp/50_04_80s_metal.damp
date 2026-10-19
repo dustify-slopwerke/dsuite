@@ -1,0 +1,14 @@
+# damp preset
+name = 80s Metal
+category = High Gain
+model = High Gain
+gain = 6.5
+master = 7
+bright = 1
+middle = 6
+treble = 7
+presence = 6
+resonance = 5
+cab = 4x12 Closed
+bass = 6
+output_volume = -9.7

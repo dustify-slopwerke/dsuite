@@ -1,0 +1,8 @@
+# dpiano preset
+name = Hello (Ballad Grand)
+category = '80s Songs
+hammer_hardness = -0.1
+aftersound = -14
+sympathetic = 0.7
+room_mix = 0.25
+room_size = 0.6

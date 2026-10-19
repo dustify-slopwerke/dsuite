@@ -1,0 +1,21 @@
+# damp preset
+name = Enter Sandman (Riff)
+category = Metallica
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, eq, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = High Gain
+gain = 6.5
+master = 7
+bass = 6
+middle = 4.5
+treble = 6.5
+presence = 6.5
+resonance = 6
+cab = 4x12 Closed
+mid_drive_on = on
+mid_drive_drive = 1
+mid_drive_tone = 6
+mid_drive_level = 8
+gate_on = on
+gate_threshold = -55
+gate_release = 50
+output_volume = -9.2

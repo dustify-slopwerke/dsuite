@@ -1,0 +1,11 @@
+# damp preset
+name = Bluesy Crunch
+category = Crunch
+model = Crunch
+gain = 5
+master = 7
+middle = 6
+treble = 5
+cab = 2x12 Open
+mic = Ribbon
+output_volume = -2.9

@@ -1,0 +1,13 @@
+# damp preset
+name = Modern Metal
+category = High Gain
+model = High Gain
+gain = 8.5
+bass = 7
+middle = 3
+treble = 6.5
+presence = 7
+resonance = 7
+gate_threshold = -55
+cab = 4x12 Closed
+output_volume = -1.5

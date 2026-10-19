@@ -1,0 +1,11 @@
+# dpiano preset
+name = Imagine (Soft and Close)
+category = '70s Songs
+hammer_hardness = -0.5
+brilliance = -0.5
+unison_detune = 1.4
+lid = 0.3
+mechanical_noise = 1.5
+mic_distance = 0.15
+room_mix = 0.06
+master_volume = 2.3

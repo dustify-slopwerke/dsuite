@@ -1,0 +1,9 @@
+# dpiano preset
+name = Concert Hall (Audience)
+category = Grands
+perspective = Audience
+stereo_width = 0.5
+mic_distance = 0.8
+room_mix = 0.35
+room_size = 0.85
+master_volume = -1.2

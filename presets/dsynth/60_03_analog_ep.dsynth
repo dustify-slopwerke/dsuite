@@ -1,0 +1,37 @@
+# Analog electric piano: sine and triangle an octave apart with a soft velocity-sensitive bark,
+# a slow decay and a gentle per-voice tremolo (LFO 2 on amp).
+name = Analog EP
+category = Keys & Plucks
+osc1_wave = Sine
+osc1_level = 0.8
+osc2_on = on
+osc2_wave = Triangle
+osc2_range = 4'
+osc2_level = 0.3
+filter_model = IR3109 12dB
+filter_cutoff = 1000
+filter_reso = 0.1
+filter_env_amt = 0.35
+filter_keytrack = Full
+filter_vel = 0.5
+fenv_attack = 0.001
+fenv_decay = 0.6
+fenv_sustain = 0.2
+fenv_release = 0.4
+aenv_attack = 0.002
+aenv_decay = 2.5
+aenv_sustain = 0.15
+aenv_release = 0.4
+amp_vel = 0.5
+mx1_source = LFO 2
+mx1_dest = Amp
+mx1_amount = 0.15
+lfo2_rate = 4.5
+lfo2_wave = Sine
+lfo2_keysync = off
+voice_mode = Poly
+pan_spread = 0.3
+drift = 0.2
+chorus_mode = I
+reverb_mix = 0.15
+master_volume = -9.2

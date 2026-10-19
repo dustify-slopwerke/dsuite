@@ -1,0 +1,35 @@
+# OMD, "Enola Gay" (1980): the bright, buzzy Korg Micro-Preset riff. One pulse oscillator into a
+# Korg 12 dB low-pass, a little vibrato and a short echo.
+name = Enola Gay (Micro-Preset)
+category = '80s Songs
+osc1_wave = Pulse
+osc1_pw = 0.3
+osc1_level = 0.85
+filter_model = MS-20 12dB
+filter_cutoff = 2500
+filter_reso = 0.35
+filter_env_amt = 0.2
+filter_keytrack = 2/3
+fenv_attack = 0.002
+fenv_decay = 0.3
+fenv_sustain = 0.7
+aenv_attack = 0.005
+aenv_decay = 0.2
+aenv_sustain = 0.9
+aenv_release = 0.15
+voice_mode = Mono
+note_priority = Last
+mod_source = LFO
+mod_filter = off
+lfo_wave = Sine
+lfo_rate = 5.5
+mx1_source = LFO
+mx1_dest = Pitch
+mx1_amount = 0.05
+drift = 0.3
+delay_mode = Stereo
+delay_note = 1/8
+delay_feedback = 0.25
+delay_mix = 0.15
+reverb_mix = 0.15
+master_volume = -12.8

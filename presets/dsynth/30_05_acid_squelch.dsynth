@@ -1,0 +1,33 @@
+# Acid squelch: one saw into a very resonant ladder with a short envelope. Play legato for the
+# slides; velocity acts as accent (more cutoff and envelope).
+name = Acid Squelch
+category = Bass
+osc1_wave = Saw
+osc1_range = 16'
+osc1_level = 0.85
+mixer_drive = 8
+filter_cutoff = 280
+filter_reso = 0.75
+filter_env_amt = 0.55
+filter_keytrack = 1/3
+filter_vel = 0.5
+fenv_attack = 0.001
+fenv_decay = 0.18
+fenv_sustain = 0
+fenv_release = 0.1
+aenv_attack = 0.001
+aenv_decay = 0.3
+aenv_sustain = 0.7
+aenv_release = 0.05
+voice_mode = Legato
+note_priority = Last
+glide_time = 0.06
+glide_type = Linear
+glide_mode = Legato Only
+drift = 0.15
+delay_mode = Stereo
+delay_note = 1/8 D
+delay_feedback = 0.3
+delay_tone = 2500
+delay_mix = 0.12
+master_volume = -2.8

@@ -1,0 +1,21 @@
+# damp preset
+name = Black Magic Woman (Sustain)
+category = '70s Songs
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Crunch
+gain = 8.5
+master = 7
+bass = 5
+middle = 8
+treble = 4.5
+presence = 4
+sag = 1.2
+cab = 1x12 Open
+mic = Ribbon
+mic_position = 0.25
+reverb_on = on
+reverb_mode = Spring
+reverb_decay = 4.5
+reverb_mix = 2.5
+reverb_tone = 4.5
+output_volume = -15.5

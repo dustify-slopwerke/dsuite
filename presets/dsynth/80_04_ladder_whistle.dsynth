@@ -1,0 +1,20 @@
+# No oscillators: the self-oscillating ladder tracks the keyboard as a sine-like voice
+name = Ladder Whistle
+category = Bells & FX
+osc1_on = off
+filter_cutoff = 261.63
+filter_reso = 1
+filter_res_comp = 1
+filter_env_amt = 0
+filter_keytrack = Full
+aenv_attack = 0.01
+aenv_decay = 0.3
+aenv_sustain = 1
+aenv_release = 0.3
+voice_mode = Legato
+note_priority = Last
+glide_time = 0.12
+glide_mode = Legato Only
+drift = 0
+tolerance = 0
+master_volume = -16.1

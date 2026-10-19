@@ -1,0 +1,8 @@
+# dpiano preset
+name = Studio Grand
+category = Grands
+hammer_hardness = 0.35
+brilliance = 0.3
+mic_distance = 0.1
+room_mix = 0.08
+stereo_width = 0.9

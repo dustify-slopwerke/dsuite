@@ -1,0 +1,12 @@
+# damp preset
+name = Singing Lead
+category = Lead
+model = Crunch
+gain = 10
+master = 6
+middle = 7
+treble = 5
+presence = 5
+cab = 4x12 Closed
+mic_distance = 0.3
+output_volume = -14.5

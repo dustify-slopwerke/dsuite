@@ -1,0 +1,27 @@
+# Madonna, "Holiday" (1983): the soft string-machine pad behind the chorus. Saws at 8' and 4',
+# high-passed, gentle swell and both chorus modes.
+name = Holiday (Strings)
+category = '80s Songs
+osc1_wave = Saw
+osc1_level = 0.7
+osc2_on = on
+osc2_wave = Saw
+osc2_range = 4'
+osc2_tune = 0.08
+osc2_level = 0.4
+vhpf_cutoff = 200
+filter_model = SEM 12dB
+filter_cutoff = 3000
+filter_reso = 0.05
+filter_env_amt = 0
+aenv_attack = 0.25
+aenv_decay = 1
+aenv_sustain = 1
+aenv_release = 0.8
+voice_mode = Poly
+pan_spread = 0.5
+drift = 0.3
+chorus_mode = I + II
+reverb_mix = 0.3
+reverb_decay = 2.5
+master_volume = -12.5

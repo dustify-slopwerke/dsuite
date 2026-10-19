@@ -1,0 +1,21 @@
+# damp preset
+name = Money for Nothing (Cocked Wah)
+category = '80s Songs
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Crunch
+gain = 7
+master = 6.5
+bass = 4
+middle = 7.5
+treble = 5
+presence = 5
+cab = 4x12 Closed
+wah_on = on
+wah_mode = Pedal
+wah_position = 5.5
+wah_peak = 7
+reverb_on = on
+reverb_mode = Plate
+reverb_decay = 4
+reverb_mix = 2
+output_volume = -14.5

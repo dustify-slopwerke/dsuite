@@ -1,0 +1,7 @@
+# Keep LF line endings on every platform (Windows CI checks out with autocrlf), so the factory
+# presets embedded in the plugins are byte-identical everywhere
+* text=auto eol=lf
+*.bin binary
+*.png binary
+*.wav binary
+*.flac binary

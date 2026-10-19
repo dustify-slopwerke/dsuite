@@ -1,0 +1,22 @@
+# damp preset
+name = How Soon Is Now (Tremolo)
+category = '80s Songs
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Clean
+gain = 4
+master = 6
+bass = 5.5
+middle = 5
+treble = 6
+presence = 5
+cab = 2x12 Open
+tremolo_on = on
+tremolo_rate = 6.4
+tremolo_depth = 9.5
+tremolo_shape = Opto
+tremolo_pan = on
+reverb_on = on
+reverb_mode = Spring
+reverb_decay = 6
+reverb_mix = 4
+output_volume = -5.5

@@ -1,0 +1,12 @@
+# damp preset
+name = Jangle
+category = Edge of Breakup
+model = Chime
+gain = 6.5
+bright = 1
+bass = 4
+treble = 7
+presence = 7
+cab = 2x12 Open
+mic = Condenser
+output_volume = 3.2

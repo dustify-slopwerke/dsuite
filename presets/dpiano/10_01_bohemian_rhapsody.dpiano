@@ -1,0 +1,8 @@
+# dpiano preset
+name = Bohemian Rhapsody (Ballad Grand)
+category = '70s Songs
+hammer_hardness = -0.1
+brilliance = 0.1
+aftersound = -16
+mic_distance = 0.3
+room_mix = 0.2

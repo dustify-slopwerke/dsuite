@@ -1,0 +1,20 @@
+# damp preset
+name = Machine Gun (Uni-Vibe)
+category = '70s Songs
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, vibrato, amp, phaser, flanger, chorus, tremolo, delay, reverb
+model = Crunch
+gain = 4.5
+master = 8
+bass = 5
+middle = 6
+treble = 6
+presence = 5
+cab = 4x12 Closed
+face_fuzz_on = on
+face_fuzz_fuzz = 8
+face_fuzz_level = 0
+vibrato_on = on
+vibrato_mode = Vibe
+vibrato_rate = 1.6
+vibrato_depth = 6
+output_volume = -5.5

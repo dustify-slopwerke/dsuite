@@ -1,0 +1,9 @@
+# dpiano preset
+name = Bennie and the Jets (Rock Grand)
+category = '70s Songs
+hammer_hardness = 0.6
+brilliance = 0.5
+stretch_tuning = 1.2
+mechanical_noise = 1.3
+mic_distance = 0.05
+room_mix = 0.12

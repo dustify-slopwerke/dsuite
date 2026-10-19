@@ -1,0 +1,10 @@
+# dpiano preset
+name = Jazz Club
+category = Grands
+hammer_hardness = -0.35
+brilliance = -0.3
+lid = 0.6
+mic_distance = 0.45
+room_mix = 0.22
+room_size = 0.35
+master_volume = 1.1

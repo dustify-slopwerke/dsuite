@@ -1,0 +1,27 @@
+# damp preset
+name = Sweet Child o' Mine (Lead)
+category = '80s Songs
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Crunch
+gain = 7.5
+master = 7
+bass = 5
+middle = 7
+treble = 5.5
+presence = 5
+cab = 4x12 Closed
+mic_position = 0.25
+mid_drive_on = on
+mid_drive_drive = 2.5
+mid_drive_tone = 5
+mid_drive_level = 6
+delay_on = on
+delay_mode = Analog
+delay_time = 420
+delay_feedback = 3
+delay_mix = 2.5
+reverb_on = on
+reverb_mode = Plate
+reverb_decay = 4.5
+reverb_mix = 2
+output_volume = -17.9

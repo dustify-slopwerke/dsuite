@@ -1,0 +1,33 @@
+# Eurythmics, "Sweet Dreams (Are Made of This)" (1983): the Oberheim OB-X riff. Two detuned
+# saws into the 12 dB filter with a short contour, chorus and a dotted echo.
+name = Sweet Dreams (OB-X Riff)
+category = '80s Songs
+osc1_wave = Saw
+osc1_level = 0.8
+osc2_on = on
+osc2_wave = Saw
+osc2_tune = 0.08
+osc2_level = 0.8
+filter_model = SEM 12dB
+filter_cutoff = 450
+filter_reso = 0.35
+filter_env_amt = 0.45
+filter_keytrack = 2/3
+fenv_attack = 0.002
+fenv_decay = 0.3
+fenv_sustain = 0.15
+fenv_release = 0.2
+aenv_attack = 0.002
+aenv_decay = 0.45
+aenv_sustain = 0.4
+aenv_release = 0.25
+voice_mode = Poly
+pan_spread = 0.5
+drift = 0.35
+chorus_mode = I
+delay_mode = Stereo
+delay_note = 1/8 D
+delay_feedback = 0.25
+delay_mix = 0.15
+reverb_mix = 0.2
+master_volume = -13.8

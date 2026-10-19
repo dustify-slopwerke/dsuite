@@ -1,0 +1,32 @@
+# a-ha, "Take On Me" (1985): the bright Juno-60 riff. One DCO with saw + pulse and the sub, a
+# quick filter pluck, the high-pass at 1, chorus I and a dotted echo.
+name = Take On Me (Juno-60)
+category = '80s Songs
+osc_type = DCO
+osc1_wave = Saw+Pulse
+osc1_pw = 0.3
+osc1_level = 0.7
+sub_level = 0.3
+filter_model = IR3109 24dB
+filter_cutoff = 1400
+filter_reso = 0.2
+filter_env_amt = 0.45
+filter_keytrack = 2/3
+fenv_attack = 0.001
+fenv_decay = 0.35
+fenv_sustain = 0.15
+fenv_release = 0.25
+aenv_attack = 0.001
+aenv_decay = 0.45
+aenv_sustain = 0.3
+aenv_release = 0.25
+hpf_mode = 1
+voice_mode = Poly
+drift = 0.2
+chorus_mode = I
+delay_mode = Stereo
+delay_note = 1/8 D
+delay_feedback = 0.25
+delay_mix = 0.15
+reverb_mix = 0.15
+master_volume = -5.4

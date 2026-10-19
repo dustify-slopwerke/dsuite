@@ -1,0 +1,17 @@
+# damp preset
+name = Smoke on the Water (Riff)
+category = '70s Songs
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Crunch
+gain = 6.5
+master = 8
+bright = on
+bass = 4
+middle = 6
+treble = 7
+presence = 6
+cab = 4x12 Closed
+boost_on = on
+boost_gain = 12
+boost_tone = 8.5
+output_volume = -19.5

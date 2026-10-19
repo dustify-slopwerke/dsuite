@@ -1,0 +1,177 @@
+# Build, test and validate the suite on Linux and Windows, then upload the packaged plugins.
+# release.yml calls this workflow for tags and publishes the packages it uploads.
+name: CI
+
+on:
+  push:
+    branches: ["**"]   # tags are built by release.yml
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PLUGINVAL_VERSION: v1.0.4
+  CLAP_VALIDATOR_VERSION: "0.4.1"
+  CLAP_VALIDATOR_BUILD: 0.4.1-127-g152b982
+  PLUGINS: dsynth dpiano damp
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            platform: linux-x64
+          - name: Windows x64
+            os: windows-latest   # MSVC (Visual Studio 2022)
+            platform: windows-x64
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          # JUCE's Linux dependencies for this project's flags (JUCE_WEB_BROWSER=0, JUCE_USE_CURL=0,
+          # JUCE_JACK=1, no OpenGL)
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build g++-14 pkg-config \
+            libasound2-dev libjack-jackd2-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev libxi-dev
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          variant: sccache
+          key: ${{ matrix.platform }}
+          max-size: 2G
+
+      # FetchContent sources (JUCE, clap-juce-extensions, Catch2). Their versions are pinned in
+      # CMakeLists.txt, so that is the cache key; on a hit the configure step stays offline.
+      - name: Cache FetchContent sources
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: .deps/*-src
+          key: deps-${{ matrix.platform }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -DFETCHCONTENT_BASE_DIR="$GITHUB_WORKSPACE/.deps" \
+            -DFETCHCONTENT_FULLY_DISCONNECTED=${{ steps.deps.outputs.cache-hit == 'true' && 'ON' || 'OFF' }} \
+            -DDUSTIFY_COPY_PLUGINS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
+      - name: Download validators
+        run: |
+          mkdir -p validators && cd validators
+          gh_dl() { curl -fsSL --retry 5 --retry-all-errors -o "$2" "$1"; }
+          if [ "$RUNNER_OS" = Linux ]; then
+            gh_dl "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSION/pluginval_Linux.zip" pluginval.zip
+            gh_dl "https://github.com/free-audio/clap-validator/releases/download/$CLAP_VALIDATOR_VERSION/clap-validator-$CLAP_VALIDATOR_BUILD-ubuntu-22.04.zip" cv.zip
+            unzip -o pluginval.zip
+            unzip -o cv.zip && tar -xzf clap-validator-*.tar.gz
+            chmod +x pluginval clap-validator
+          else
+            gh_dl "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSION/pluginval_Windows.zip" pluginval.zip
+            gh_dl "https://github.com/free-audio/clap-validator/releases/download/$CLAP_VALIDATOR_VERSION/clap-validator-$CLAP_VALIDATOR_BUILD-windows.zip" cv.zip
+            unzip -o pluginval.zip
+            unzip -o cv.zip
+          fi
+          ls -l
+
+      - name: pluginval (VST3, strictness 10)
+        run: |
+          for p in $PLUGINS; do
+            echo "::group::pluginval $p"
+            ./validators/pluginval --strictness-level 10 --skip-gui-tests --validate-in-process \
+              --output-dir "build/pluginval-logs" --validate "build/${p}_artefacts/Release/VST3/$p.vst3"
+            echo "::endgroup::"
+          done
+
+      - name: clap-validator
+        run: |
+          for p in $PLUGINS; do
+            echo "::group::clap-validator $p"
+            ./validators/clap-validator validate "build/${p}_artefacts/Release/CLAP/$p.clap"
+            echo "::endgroup::"
+          done
+
+      - name: Package
+        id: package
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version="$GITHUB_REF_NAME"; else version="${GITHUB_SHA::7}"; fi
+          name="dsuite-$version-${{ matrix.platform }}"
+          stage="dist/$name"
+          mkdir -p "$stage"/{VST3,CLAP,LV2,Standalone}
+          for p in $PLUGINS; do
+            out="build/${p}_artefacts/Release"
+            cp -R "$out/VST3/$p.vst3" "$stage/VST3/"
+            cp -R "$out/CLAP/$p.clap" "$stage/CLAP/"
+            cp -R "$out/LV2/$p.lv2" "$stage/LV2/"
+            if [ "$RUNNER_OS" = Windows ]; then
+              cp "$out/Standalone/$p.exe" "$stage/Standalone/"
+            else
+              cp "$out/Standalone/$p" "$stage/Standalone/"
+            fi
+          done
+          cp README.md LICENSE "$stage/"
+          if [ -f THIRD_PARTY.md ]; then cp THIRD_PARTY.md "$stage/"; fi
+          cd dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "$name.zip" "$name" > /dev/null
+            echo "file=dist/$name.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar -czf "$name.tar.gz" "$name"
+            echo "file=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+
+      - name: Upload validator logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validator-logs-${{ matrix.platform }}
+          path: build/pluginval-logs
+          if-no-files-found: ignore

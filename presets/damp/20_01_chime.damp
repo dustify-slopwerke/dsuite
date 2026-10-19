@@ -1,0 +1,10 @@
+# damp preset
+name = Chime
+category = Edge of Breakup
+model = Chime
+gain = 8
+bass = 4
+treble = 6
+master = 5
+presence = 6
+cab = 2x12 Open

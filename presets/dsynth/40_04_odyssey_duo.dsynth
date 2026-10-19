@@ -1,0 +1,25 @@
+# ARP Odyssey duophonic: hold two keys and each oscillator takes one; ring mod adds the bite
+name = Odyssey Duo
+category = Leads
+osc1_wave = Saw
+osc1_level = 0.7
+osc2_on = on
+osc2_wave = Pulse
+osc2_pw = 0.35
+osc2_level = 0.6
+ring_mod = 0.25
+filter_model = ARP 24dB
+filter_cutoff = 1400
+filter_reso = 0.45
+filter_env_amt = 0.35
+filter_keytrack = 2/3
+fenv_attack = 0.003
+fenv_decay = 0.4
+fenv_sustain = 0.4
+fenv_release = 0.25
+aenv_attack = 0.003
+aenv_sustain = 1
+aenv_release = 0.2
+voice_mode = Duo
+glide_time = 0.03
+master_volume = -10

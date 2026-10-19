@@ -1,0 +1,13 @@
+# damp preset
+name = Glassy Clean
+category = Clean
+model = Clean
+gain = 3.5
+bright = 1
+bass = 5
+middle = 4
+treble = 6.5
+master = 5
+presence = 6
+cab = 2x12 Open
+output_volume = -6.9

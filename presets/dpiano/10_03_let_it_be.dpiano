@@ -1,0 +1,7 @@
+# dpiano preset
+name = Let It Be (Gospel Grand)
+category = '70s Songs
+hammer_hardness = 0.1
+lid = 0.7
+room_mix = 0.18
+master_volume = 0.9

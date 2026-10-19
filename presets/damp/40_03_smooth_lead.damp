@@ -1,0 +1,13 @@
+# damp preset
+name = Smooth Lead
+category = Lead
+model = High Gain
+gain = 7
+middle = 7
+treble = 4
+presence = 4
+resonance = 2
+cab = 4x12 Closed
+mic = Ribbon
+mic_distance = 0.4
+output_volume = 2.5

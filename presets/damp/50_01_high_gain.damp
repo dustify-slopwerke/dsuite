@@ -1,0 +1,15 @@
+# damp preset
+name = High Gain
+category = High Gain
+model = High Gain
+gain = 7
+bass = 5
+middle = 4
+treble = 6
+master = 5
+presence = 6
+resonance = 5
+gate_threshold = -55
+cab = 4x12 Closed
+mic_position = 0.2
+output_volume = -1.4

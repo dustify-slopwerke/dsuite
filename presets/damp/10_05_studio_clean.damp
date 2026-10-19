@@ -1,0 +1,12 @@
+# damp preset
+name = Studio Clean
+category = Clean
+model = Clean
+gain = 4
+bass = 5
+middle = 5
+treble = 5
+cab = 4x12 Closed
+mic = Condenser
+mic_distance = 0.5
+output_volume = 1.7

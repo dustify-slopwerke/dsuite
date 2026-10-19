@@ -1,0 +1,19 @@
+# damp preset
+name = Surf Spring (Misirlou)
+category = Ambient & FX
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Clean
+gain = 4.5
+master = 6
+bright = on
+bass = 4
+middle = 4
+treble = 7.5
+presence = 7
+cab = 2x12 Open
+reverb_on = on
+reverb_mode = Spring
+reverb_decay = 7
+reverb_tone = 6.5
+reverb_mix = 7
+output_volume = -16.9

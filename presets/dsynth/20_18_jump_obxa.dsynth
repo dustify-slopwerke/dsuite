@@ -1,0 +1,51 @@
+# The "Jump" OB-Xa stab, big and aggressive: three detuned saws per voice driven hard into the
+# CEM 24 dB low-pass (the OB-Xa used CEM3320s), an instant, strong filter envelope for the bite
+# (harder hits open it further), organ-like amp so held chords stay full, wide voice spread,
+# chorus for width, a short dark echo and a medium hall.
+name = Jump (OB-Xa)
+category = '80s Songs
+osc1_wave = Saw
+osc1_range = 8'
+osc1_level = 0.8
+osc2_on = on
+osc2_wave = Saw
+osc2_range = 8'
+osc2_tune = 0.09
+osc2_level = 0.8
+osc3_on = on
+osc3_wave = Saw
+osc3_range = 8'
+osc3_tune = -0.07
+osc3_level = 0.6
+mixer_drive = 12
+vhpf_cutoff = 110
+filter_model = CEM 24dB
+filter_cutoff = 1500
+filter_reso = 0.22
+filter_env_amt = 0.48
+filter_keytrack = 2/3
+filter_vel = 0.3
+fenv_attack = 0.001
+fenv_decay = 0.32
+fenv_sustain = 0.4
+fenv_release = 0.3
+aenv_attack = 0.002
+aenv_decay = 0.4
+aenv_sustain = 0.95
+aenv_release = 0.3
+voice_mode = Poly
+pan_spread = 0.75
+drift = 0.45
+tolerance = 0.6
+chorus_mode = I
+delay_mode = Stereo
+delay_note = 1/8
+delay_feedback = 0.2
+delay_tone = 3500
+delay_mix = 0.12
+reverb_mix = 0.22
+reverb_size = 0.65
+reverb_decay = 2.2
+reverb_damping = 0.55
+reverb_predelay = 15
+master_volume = -24.6

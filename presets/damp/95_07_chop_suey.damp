@@ -1,0 +1,26 @@
+# damp preset
+name = Chop Suey! (Riff)
+category = Nu-Metal
+board = pitch, wah, compressor, octave, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, eq, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Modern High Gain
+gain = 5.5
+master = 7
+bass = 3
+middle = 6
+treble = 6.5
+presence = 6.5
+resonance = 4.5
+cab = 4x12 Closed
+pitch_on = on
+pitch_mode = Steps
+pitch_shift = -2
+pitch_position = 10
+pitch_mix = 10
+mid_drive_on = on
+mid_drive_drive = 1
+mid_drive_tone = 6
+mid_drive_level = 8
+gate_on = on
+gate_threshold = -52
+gate_release = 40
+output_volume = -9.9

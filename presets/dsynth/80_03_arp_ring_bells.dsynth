@@ -1,0 +1,26 @@
+# Ring-modulated bells: only the ring modulator is in the mix, through the ARP filter
+name = ARP Ring Bells
+category = Bells & FX
+osc1_wave = Triangle
+osc1_level = 0
+osc2_on = off
+osc2_wave = Square
+osc2_range = 4'
+osc2_tune = 0.35
+ring_mod = 0.9
+filter_model = ARP 24dB
+filter_cutoff = 4000
+filter_reso = 0.2
+filter_env_amt = 0.2
+fenv_attack = 0.001
+fenv_decay = 1
+fenv_sustain = 0
+aenv_attack = 0.001
+aenv_decay = 2
+aenv_sustain = 0
+aenv_release = 1.2
+amp_vel = 0.5
+voice_mode = Poly
+pan_spread = 0.5
+chorus_mode = I
+master_volume = -8.2

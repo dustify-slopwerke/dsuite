@@ -1,0 +1,32 @@
+# Depeche Mode, "Just Can't Get Enough" (1981): Vince Clarke's bright plucked riff. Pulse plus a
+# quiet 4' saw, a snappy filter and a dotted echo.
+name = Just Can't Get Enough (Riff)
+category = '80s Songs
+osc1_wave = Pulse
+osc1_pw = 0.25
+osc1_level = 0.8
+osc2_on = on
+osc2_wave = Saw
+osc2_range = 4'
+osc2_level = 0.3
+filter_cutoff = 1200
+filter_reso = 0.25
+filter_env_amt = 0.45
+filter_keytrack = 2/3
+fenv_attack = 0.001
+fenv_decay = 0.2
+fenv_sustain = 0.2
+fenv_release = 0.15
+aenv_attack = 0.001
+aenv_decay = 0.3
+aenv_sustain = 0.4
+aenv_release = 0.12
+voice_mode = Poly
+pan_spread = 0.3
+drift = 0.25
+delay_mode = Stereo
+delay_note = 1/8 D
+delay_feedback = 0.3
+delay_mix = 0.18
+reverb_mix = 0.12
+master_volume = -6.5

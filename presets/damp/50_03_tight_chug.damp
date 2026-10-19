@@ -1,0 +1,14 @@
+# damp preset
+name = Tight Chug
+category = High Gain
+model = High Gain
+gain = 7.5
+bass = 5
+middle = 5
+treble = 6
+presence = 7
+resonance = 6
+gate_threshold = -50
+gate_release = 40
+cab = 4x12 Closed
+output_volume = -1.2

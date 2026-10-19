@@ -1,0 +1,35 @@
+# Madonna, "Into the Groove" (1985): the airy pad. Slowly modulated pulse plus a detuned saw,
+# slow attack and release, chorus II and reverb.
+name = Into the Groove (Pad)
+category = '80s Songs
+osc1_wave = Pulse
+osc1_pw = 0.3
+osc1_level = 0.7
+osc2_on = on
+osc2_wave = Saw
+osc2_tune = 0.1
+osc2_level = 0.5
+filter_model = IR3109 24dB
+filter_cutoff = 2000
+filter_reso = 0.15
+filter_env_amt = 0.1
+fenv_attack = 0.4
+fenv_decay = 1
+fenv_sustain = 0.8
+fenv_release = 1.2
+aenv_attack = 0.4
+aenv_decay = 1
+aenv_sustain = 1
+aenv_release = 1.2
+lfo_rate = 0.6
+mod_source = LFO
+mod_amount = 0.25
+mod_pitch = off
+mod_pw = on
+voice_mode = Poly
+pan_spread = 0.6
+drift = 0.3
+chorus_mode = II
+reverb_mix = 0.35
+reverb_decay = 3
+master_volume = -16.4

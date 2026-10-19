@@ -1,0 +1,14 @@
+# damp preset
+name = Country Twang
+category = Clean
+model = Clean
+gain = 4.5
+bright = 1
+bass = 5
+middle = 5
+treble = 7.5
+presence = 7
+cab = 1x12 Open
+mic_position = 0.1
+mic_distance = 0.1
+output_volume = -15.9

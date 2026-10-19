@@ -1,0 +1,26 @@
+# damp preset
+name = Break Stuff (Riff)
+category = Nu-Metal
+board = pitch, wah, compressor, octave, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, eq, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Modern High Gain
+gain = 6
+master = 7
+bass = 3
+middle = 3.5
+treble = 6.5
+presence = 7
+resonance = 5
+cab = 4x12 Closed
+pitch_on = on
+pitch_mode = Steps
+pitch_shift = -5
+pitch_position = 10
+pitch_mix = 10
+mid_drive_on = on
+mid_drive_drive = 0.5
+mid_drive_tone = 6.5
+mid_drive_level = 9
+gate_on = on
+gate_threshold = -48
+gate_release = 30
+output_volume = -8.7

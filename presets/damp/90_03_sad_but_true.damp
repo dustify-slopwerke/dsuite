@@ -1,0 +1,26 @@
+# damp preset
+name = Sad but True (Riff)
+category = Metallica
+board = pitch, wah, compressor, octave, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, eq, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = High Gain
+gain = 6.5
+master = 7.5
+bass = 6.5
+middle = 5
+treble = 6
+presence = 6
+resonance = 6.5
+cab = 4x12 Closed
+pitch_on = on
+pitch_mode = Steps
+pitch_shift = -2
+pitch_position = 10
+pitch_mix = 10
+mid_drive_on = on
+mid_drive_drive = 1
+mid_drive_tone = 5.5
+mid_drive_level = 8
+gate_on = on
+gate_threshold = -55
+gate_release = 60
+output_volume = -10.7

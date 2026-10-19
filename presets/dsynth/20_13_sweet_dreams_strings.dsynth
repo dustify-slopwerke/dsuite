@@ -1,0 +1,30 @@
+# Eurythmics, "Sweet Dreams (Are Made of This)" (1983): the string line that answers the riff.
+# Two detuned saws through the open 12 dB filter, a quick swell and a lush double chorus.
+name = Sweet Dreams (Strings)
+category = '80s Songs
+osc1_wave = Saw
+osc1_level = 0.75
+osc2_on = on
+osc2_wave = Saw
+osc2_tune = 0.08
+osc2_level = 0.7
+vhpf_cutoff = 150
+filter_model = SEM 12dB
+filter_cutoff = 2600
+filter_reso = 0.1
+filter_env_amt = 0.1
+fenv_attack = 0.15
+fenv_decay = 1
+fenv_sustain = 0.8
+fenv_release = 0.7
+aenv_attack = 0.15
+aenv_decay = 1
+aenv_sustain = 1
+aenv_release = 0.7
+voice_mode = Poly
+pan_spread = 0.6
+drift = 0.35
+chorus_mode = I + II
+reverb_mix = 0.3
+reverb_decay = 2.5
+master_volume = -13.6

@@ -1,0 +1,22 @@
+# damp preset
+name = Seven Nation Army (Octave Down)
+category = Ambient & FX
+board = wah, compressor, octave, pitch, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
+model = Crunch
+gain = 5
+master = 7
+bass = 6
+middle = 6
+treble = 5.5
+presence = 5
+cab = 2x12 Open
+pitch_on = on
+pitch_mode = Steps
+pitch_shift = -12
+pitch_position = 10
+pitch_mix = 10
+big_fuzz_on = on
+big_fuzz_sustain = 6.5
+big_fuzz_tone = 5
+big_fuzz_level = 0
+output_volume = -1.5

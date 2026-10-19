@@ -1,0 +1,15 @@
+# damp preset
+name = Jazz Warmth
+category = Clean
+model = Clean
+gain = 4
+bright = 0
+bass = 6
+middle = 5
+treble = 3
+presence = 3
+cab = 1x12 Open
+mic = Ribbon
+mic_position = 0.5
+mic_distance = 0.4
+output_volume = 5.9

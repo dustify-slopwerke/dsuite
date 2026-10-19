@@ -1,0 +1,8 @@
+# dpiano preset
+name = Resonant Grand
+category = Character
+sympathetic = 1
+soundboard_body = 0.9
+decay = 1.5
+room_mix = 0.25
+master_volume = -2.3

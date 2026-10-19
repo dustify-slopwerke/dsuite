@@ -1,0 +1,12 @@
+# damp preset
+name = Blues Breakup
+category = Edge of Breakup
+model = Clean
+gain = 7.5
+master = 7
+bass = 5
+middle = 6
+treble = 5
+sag = 1.4
+cab = 1x12 Open
+output_volume = -21.4

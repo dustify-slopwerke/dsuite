@@ -1,0 +1,24 @@
+# Juno organ: square and sub through an open filter, gate VCA (no envelope, like an organ) and
+# fixed velocity, with chorus II for the rotary-ish shimmer.
+name = Juno Organ
+category = Keys & Plucks
+osc_type = DCO
+osc1_wave = Square
+osc1_level = 0.6
+osc1_range = 8'
+osc2_on = on
+osc2_wave = Square
+osc2_range = 4'
+osc2_level = 0.3
+sub_level = 0.4
+filter_model = IR3109 24dB
+filter_cutoff = 3500
+filter_env_amt = 0
+vca_mode = Gate
+velocity_curve = Fixed
+hpf_mode = 1
+voice_mode = Poly
+drift = 0.1
+chorus_mode = II
+reverb_mix = 0.15
+master_volume = -14.4

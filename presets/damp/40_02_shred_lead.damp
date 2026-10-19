@@ -1,0 +1,13 @@
+# damp preset
+name = Shred Lead
+category = Lead
+model = High Gain
+gain = 8
+bass = 4
+middle = 6
+treble = 6
+presence = 6
+resonance = 2
+gate_threshold = -60
+cab = 4x12 Closed
+output_volume = -1.1

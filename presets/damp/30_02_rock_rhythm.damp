@@ -1,0 +1,12 @@
+# damp preset
+name = Rock Rhythm
+category = Crunch
+model = Crunch
+gain = 7.5
+bass = 5
+middle = 7
+treble = 6
+master = 6
+presence = 6
+cab = 4x12 Closed
+output_volume = -10.7
