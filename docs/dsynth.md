@@ -46,6 +46,8 @@ The controls are spread over three tabs: **Voice**, **Modulation** and **Effects
 
 ## Voice tab
 
+![Voice tab with the Jump (OB-Xa) preset](images/dsynth-voice.png)
+
 ### Oscillators 1, 2, 3
 
 | Control | Notes |
@@ -141,6 +143,8 @@ In Poly, glide in Legato Only mode applies while other keys are held.
   component tolerances.
 
 ## Modulation tab
+
+![Modulation tab with the Phaedra preset: arpeggiator on, LFO to cutoff in the mod matrix](images/dsynth-modulation.png)
 
 ### Poly-Mod
 

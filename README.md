@@ -40,6 +40,8 @@ User guides: [docs/dsynth.md](docs/dsynth.md), [docs/dpiano.md](docs/dpiano.md),
 - Velocity curves, aftertouch, poly aftertouch and MPE; historical tunings on any root.
 - 2x oversampling, or 4x in HQ mode.
 
+![dsynth Voice tab with the Jump (OB-Xa) preset](docs/images/dsynth-voice.png)
+
 ### dpiano
 
 - Per-key strings with inharmonic partials, unison detuning (prompt and aftersound decay),
@@ -50,6 +52,8 @@ User guides: [docs/dsynth.md](docs/dsynth.md), [docs/dpiano.md](docs/dpiano.md),
 - Player or audience perspective, microphone distance, room reverb.
 - A Voicing tab exposing the model's physical constants (hammer felt, soundboard bloom and
   radiation).
+
+![dpiano Piano tab with the Concert Grand preset](docs/images/dpiano-piano.png)
 
 ### damp
 
@@ -66,6 +70,8 @@ User guides: [docs/dsynth.md](docs/dsynth.md), [docs/dpiano.md](docs/dpiano.md),
 - 8-track looper at the end of the chain: tracks can sync to the first loop's length, overdub, undo / redo,
   non-destructive trim and padding editor, reverse, half speed; loops are saved with the session
   (FLAC-compressed).
+
+![damp Pedals tab: mid drive, graphic EQ, delay and reverb switched on](docs/images/damp-pedals.png)
 
 ## Building
 

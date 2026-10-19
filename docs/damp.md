@@ -33,6 +33,8 @@ input -> Input Gain -> Noise Gate -> [pedals before the amp] -> amp -> cabinet
 
 ## Amp tab
 
+![Amp tab with the High Gain preset](images/damp-amp.png)
+
 ### Input, gate and output
 
 | Control | Range (default) | Notes |
@@ -96,6 +98,8 @@ AIFF or FLAC file. The cabinet switches to User IR.
 - User IR with nothing loaded passes the signal through, as does Off.
 
 ## Pedals tab
+
+![Pedals tab: mid drive, graphic EQ, delay and reverb switched on and open](images/damp-pedals.png)
 
 The pedalboard shows one tile per pedal plus an **AMP + cab** tile, in signal order, left to
 right, wrapping onto rows.
@@ -182,6 +186,8 @@ Drive pedal Level knobs are set so 0 dB at default settings is close to the bypa
 
 Eight stereo tracks at the end of the chain. Every track with audio plays at once. Each track
 records the live signal (amp, cab and all pedals) without the loops already playing.
+
+![Looper tab: three tracks with audio, track 1 open in the waveform editor with padding either side](images/damp-looper.png)
 
 ### Memory and switching on
 

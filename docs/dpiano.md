@@ -53,6 +53,8 @@ updated in the background). Body, microphone, room and volume settings apply at 
 
 ### Piano tab
 
+![Piano tab with the Concert Grand preset](images/dpiano-piano.png)
+
 | Section | Controls |
 |---|---|
 | Hammers | Hammer Hardness, Strike Position, Velocity Curve (Soft, Normal, Hard) |
