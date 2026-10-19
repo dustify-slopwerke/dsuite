@@ -19,9 +19,12 @@ if(DEFINED DSYNTH_BUILD_CLAP)
     set(DUSTIFY_BUILD_CLAP ${DSYNTH_BUILD_CLAP})
 endif()
 
-# MSVC: sources are UTF-8, and the big test and plugin translation units need /bigobj
+# MSVC: sources are UTF-8, and the big test and plugin translation units need /bigobj.
+# Executables get Linux's 8 MB main-thread stack: the tests and renderers keep a whole
+# dpiano::Piano (~1.4 MB) on the stack, which overflows Windows' 1 MB default.
 if(MSVC)
     add_compile_options(/utf-8 /bigobj)
+    add_link_options($<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:/STACK:8388608>)
 endif()
 
 include(FetchContent)

@@ -41,7 +41,7 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -75,7 +75,7 @@ jobs:
       # CMakeLists.txt, so that is the cache key; on a hit the configure step stays offline.
       - name: Cache FetchContent sources
         id: deps
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps/*-src
           key: deps-${{ matrix.platform }}-${{ hashFiles('CMakeLists.txt') }}
@@ -162,7 +162,7 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.name }}
           path: ${{ steps.package.outputs.file }}
@@ -170,7 +170,7 @@ jobs:
 
       - name: Upload validator logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: validator-logs-${{ matrix.platform }}
           path: build/pluginval-logs
