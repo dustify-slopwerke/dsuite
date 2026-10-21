@@ -5,3 +5,4 @@ hammer_hardness = 0.5
 brilliance = 0.4
 mic_distance = 0.12
 room_mix = 0.12
+master_volume = -0.8

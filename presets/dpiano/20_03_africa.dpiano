@@ -6,3 +6,4 @@ brilliance = 0.2
 stereo_width = 1.0
 mic_distance = 0.2
 room_mix = 0.14
+master_volume = -0.4

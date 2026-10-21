@@ -112,6 +112,20 @@ controllers are ignored.
   pre-delay.
 - **Master Volume**: -48 to +12 dB.
 
+### Output level and limiter
+
+The output is calibrated for everyday playing: a mezzo-forte phrase (MIDI velocities around 0.45
+to 0.65 of full) comes out at about -18 LUFS with Master Volume at 0 dB, and the factory presets
+are levelled to match each other at that level. (Versions up to 0.1.1 were 9.5 dB quieter, calibrated
+so that only a fortissimo chord reached full scale; sessions saved with them play louder now.)
+
+Loud chords can go over full scale, so a safety limiter sits after Master Volume: it holds the
+output at -1 dBFS (sample peak), looking 1 ms ahead so it turns down smoothly before a peak
+instead of clipping it, and recovers over about 80 ms. Below -1 dBFS it does nothing at all:
+most playing never touches it, while a hard forte chord is turned down by a few dB for a moment.
+It is always on. Its look-ahead delays the output by 1 ms (48 samples at 48 kHz), which dpiano
+reports to the host for latency compensation.
+
 ## Voicing tab
 
 The model's physical constants. The defaults are the fitted values; adjust them by ear.
@@ -127,6 +141,38 @@ The model's physical constants. The defaults are the fitted values; adjust them 
 | | Bass Radiation Cutoff | High-pass corner of the board's radiation (30 to 300 Hz, default 160) |
 | | Warmth (Board Mobility) | How far the direct sound drops by 2 kHz (0 to 24 dB, default 14) |
 | | Air (Treble Roll-off) | Corner of the high-frequency roll-off (2 to 20 kHz, default 6 kHz) |
+
+## Keyboard calibration
+
+The **Keyboard** section at the bottom of the Voicing tab adapts dpiano to your MIDI keyboard.
+Some keybeds rarely send high velocities (or never low ones), so the piano's full dynamic range
+is out of reach. Calibration maps the range your keyboard actually sends onto the full range,
+before the Velocity Curve and Dynamic Range settings.
+
+1. Press **Calibrate**.
+2. Play your softest notes, then your hardest (a few of each, anywhere on the keyboard).
+3. Press **Done**. Calibration also finishes by itself 15 seconds after the last new softest or
+   hardest note.
+
+The softest velocity you played then plays as the softest note dpiano makes (just above MIDI
+velocity 2, so it still sounds), the hardest as the loudest; velocities outside the range are
+clamped. The range has to span at least 15% of the MIDI range (about 19 velocity steps);
+otherwise the calibration is left unchanged and the section says so. Velocity 0 is ignored.
+
+- **Sensitivity** (-100 to +100 %, default 0) bends the curve on top of the calibration: above 0,
+  softer playing gives louder notes (velocity raised to the power 2^(-s/100)); below 0, it takes
+  harder playing. The softest and hardest notes stay where they are.
+- **Reset** returns to velocities as played (and Sensitivity 0).
+- The meter shows the last note's velocity as played (with the calibrated range marked) and as
+  mapped, in MIDI units (0 to 127).
+
+Calibration belongs to the keyboard, not the sound, so presets don't change it. It is saved in a
+settings file shared by every dpiano on the computer (`dpiano/dpiano.settings` in the user
+application data directory, e.g. `~/.config/dpiano/dpiano.settings` on Linux) and also in each
+session, so a project keeps its feel on another computer. A session's calibration wins for that
+instance; a session saved before calibration existed uses the computer's. Calibrating (or
+changing Sensitivity) updates both; other open instances pick it up when next loaded. By default
+(no calibration) velocities pass through unchanged.
 
 ## Presets
 
@@ -180,7 +226,7 @@ Preset files can be copied into this folder by hand; the list is read when the e
 
 ## Session state
 
-The host session stores every parameter plus the editor size. Saving a loaded session again
+The host session stores every parameter, the keyboard calibration and the editor size. Saving a loaded session again
 gives identical data.
 
 ## CPU

@@ -9,8 +9,12 @@
  #include "PluginProcessor.h"
  #include "dsp/PitchDetector.h"
 #endif
+#if DUSTIFY_CHECKS_DPIANO
+ #include "PluginProcessor.h"
+#endif
 
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 
@@ -164,6 +168,99 @@ void checkTextRoundTrips()
         }
     }
 }
+#if DUSTIFY_CHECKS_DPIANO
+// dpiano's keyboard calibration: kept in the session, and an old session without it uses the
+// machine-wide settings file (here in a temporary DUSTIFY_SETTINGS_DIR)
+void checkVelocityCalibration()
+{
+    auto make = [] { return std::unique_ptr<DpianoAudioProcessor> (dynamic_cast<DpianoAudioProcessor*> (createPluginFilter())); };
+    auto mapText = [] (const dpiano::VelocityMap& m)
+    { return juce::String (m.inMin) + ".." + juce::String (m.inMax) + " @ " + juce::String (m.sensitivity); };
+    const auto settings = DpianoAudioProcessor::settingsFile();
+    settings.deleteFile();
+
+    if (! make()->getVelocityMap().isIdentity())
+        fail ("velocity map: not the identity without a settings file");
+
+    dpiano::VelocityMap session;
+    session.inMin = 0.1417f;
+    session.inMax = 0.8189f;
+    session.sensitivity = 0.25f;
+    auto a = make();
+    a->setVelocityMap (session, false);
+    if (settings.exists())
+        fail ("velocity map: applying it to one instance wrote the settings file");
+    juce::MemoryBlock state;
+    a->getStateInformation (state);
+
+    auto b = make();
+    b->setStateInformation (state.getData(), (int) state.getSize());
+    if (b->getVelocityMap() != session)
+        fail ("velocity map: session round trip gave " + mapText (b->getVelocityMap()));
+    juce::MemoryBlock again;
+    b->getStateInformation (again);
+    if (again != state)
+        fail ("velocity map: a session with calibration doesn't re-save byte for byte");
+
+    // Calibrating writes the machine-wide file, which new instances pick up
+    dpiano::VelocityMap machine;
+    machine.inMin = 0.0787f;
+    machine.inMax = 0.6299f;
+    a->setVelocityMap (machine, true);
+    if (! settings.existsAsFile())
+        fail ("velocity map: calibrating didn't write " + settings.getFullPathName());
+    if (DpianoAudioProcessor::loadMachineVelocityMap() != machine || make()->getVelocityMap() != machine)
+        fail ("velocity map: the settings file loads as " + mapText (DpianoAudioProcessor::loadMachineVelocityMap()));
+
+    // The session's calibration still wins over this machine's
+    auto c = make();
+    c->setStateInformation (state.getData(), (int) state.getSize());
+    if (c->getVelocityMap() != session)
+        fail ("velocity map: a session's calibration didn't win over the machine's");
+
+    // A session saved before calibration existed uses the machine's
+    auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+    if (xml == nullptr || xml->getChildByName ("KEYBOARD") == nullptr)
+        return fail ("velocity map: no KEYBOARD element in the session");
+    xml->deleteAllChildElementsWithTagName ("KEYBOARD");
+    juce::MemoryBlock old;
+    juce::AudioProcessor::copyXmlToBinary (*xml, old);
+    c->setStateInformation (old.getData(), (int) old.getSize());
+    if (c->getVelocityMap() != machine)
+        fail ("velocity map: an old session loads " + mapText (c->getVelocityMap()) + ", not the machine's");
+
+    // Out of range values in a session are made usable
+    xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+    auto* keyboard = xml->getChildByName ("KEYBOARD");
+    keyboard->setAttribute ("velocityMin", "0.9");
+    keyboard->setAttribute ("velocityMax", "0.2");
+    keyboard->setAttribute ("sensitivity", "nan");
+    juce::MemoryBlock bad;
+    juce::AudioProcessor::copyXmlToBinary (*xml, bad);
+    c->setStateInformation (bad.getData(), (int) bad.getSize());
+    const auto sane = c->getVelocityMap();
+    if (! (sane.inMin >= 0.0f && sane.inMax <= 1.0f && sane.inMax - sane.inMin >= dpiano::VelocityMap::minSpread - 1.0e-6f
+           && std::isfinite (sane.sensitivity)))
+        fail ("velocity map: bad session values load as " + mapText (sane));
+
+    // The audio thread reports note-on velocities as played
+    c->setVelocityMap ({}, false);
+    c->prepareToPlay (48000.0, 256);
+    juce::AudioBuffer<float> buffer (2, 256);
+    juce::MidiBuffer midi;
+    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 23), 10);
+    midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 101), 20);
+    c->processBlock (buffer, midi);
+    float first = 0.0f, second = 0.0f, none = 0.0f;
+    if (c->playedNoteCount() != 2 || std::abs (c->lastPlayedVelocity() - 101.0f / 127.0f) > 1.0e-6f
+        || ! c->popPlayedVelocity (first) || ! c->popPlayedVelocity (second) || c->popPlayedVelocity (none)
+        || std::abs (first - 23.0f / 127.0f) > 1.0e-6f || std::abs (second - 101.0f / 127.0f) > 1.0e-6f)
+        fail ("velocity capture: played velocities aren't reported");
+
+    settings.deleteFile(); // the fixture checks expect no calibration
+}
+#endif
+
 #if DUSTIFY_CHECKS_DAMP
 // damp keeps a loaded cabinet IR in its state: it must come back sample for sample
 void checkImpulseInState()
@@ -560,6 +657,15 @@ int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juce;
 
+    // Settings files (dpiano's keyboard calibration) go to a temporary folder, never the user's
+    const auto settingsDir = juce::File::getSpecialLocation (juce::File::tempDirectory).getNonexistentChildFile ("dustify-checks", "");
+#if JUCE_WINDOWS
+    _putenv_s ("DUSTIFY_SETTINGS_DIR", settingsDir.getFullPathName().toRawUTF8());
+#else
+    setenv ("DUSTIFY_SETTINGS_DIR", settingsDir.getFullPathName().toRawUTF8(), 1);
+#endif
+    const struct RemoveDir { juce::File dir; ~RemoveDir() { dir.deleteRecursively(); } } removeSettingsDir { settingsDir };
+
     if (argc == 3 && juce::String (argv[1]) == "--write-state")
     {
         const auto state = fixtureState();
@@ -585,6 +691,9 @@ int main (int argc, char** argv)
     checkTuner();
     checkLoopsInState();
     checkOldSessionMigration();
+#endif
+#if DUSTIFY_CHECKS_DPIANO
+    checkVelocityCalibration();
 #endif
     if (argc == 2)
         checkSavedFixture (juce::File (argv[1]));

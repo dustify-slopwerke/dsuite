@@ -1,3 +1,4 @@
 # dpiano preset
 name = Concert Grand
 category = Grands
+master_volume = 0.4

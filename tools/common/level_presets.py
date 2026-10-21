@@ -5,7 +5,8 @@ Renders each preset with the plugin's renderer (its demo phrase), then reports i
 400 ms window, K-weighted as in ITU-R BS.1770 (so bass isn't over-counted), plus the sample peak.
 
     tools/common/level_presets.py [--render build-release/dsynth_render] [--apply] [--target -13] presets/dsynth/*.dsynth
-    tools/common/level_presets.py --render build-release/dpiano_render --default-volume 0 --max-volume 12 --target -14 --apply presets/dpiano/*.dpiano
+    tools/common/level_presets.py --render build-release/dpiano_render --render-args="--demo mf" --default-volume 0 --max-volume 12 \
+        --target -12.5 --apply presets/dpiano/*.dpiano
     tools/common/level_presets.py --render build-release/damp_render --render-args="--guitar demo" --volume-param output_volume \
         --default-volume 0 --max-volume 12 --target -16 --apply presets/damp/*.damp
 

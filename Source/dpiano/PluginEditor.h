@@ -2,6 +2,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include "KeyboardPanel.h"
 #include "PluginProcessor.h"
 
 #include "common/ui/DustifyLookAndFeel.h"
@@ -36,6 +37,8 @@ private:
     juce::Label title;
     PresetBar presets;
     std::unique_ptr<SectionPage<dpiano::PID>> mainPage, voicingPage;
+    Content voicingTab; // the voicing page, with the keyboard calibration below it
+    KeyboardPanel keyboardPanel { processor };
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     juce::MidiKeyboardComponent keyboard;
     juce::TooltipWindow tooltips { this };

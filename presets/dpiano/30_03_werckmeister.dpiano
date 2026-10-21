@@ -4,3 +4,4 @@ category = Character
 hammer_hardness = -0.2
 stretch_tuning = 0.7
 temperament = Werckmeister III
+master_volume = -0.5

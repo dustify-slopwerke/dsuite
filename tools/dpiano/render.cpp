@@ -1,10 +1,12 @@
 // Offline renderer: plays notes through the piano and writes a 32-bit float WAV.
 //
 //   dpiano_render [--preset file.dpiano] [--set id=value ...] [--notes note:start:dur[:vel],...]
-//                 [--pedal start:dur,...] [--length seconds] [--rate hz] -o out.wav
+//                 [--demo full|mf] [--pedal start:dur,...] [--length seconds] [--rate hz] -o out.wav
 //
 // --pedal holds the sustain pedal down over those spans. Without --notes it plays a short demo
-// (scale, chords, a pedalled arpeggio). Prints peak, RMS and CPU time.
+// (scale, chords, a pedalled arpeggio): "full" spans piano to forte, "mf" is the same phrase at
+// everyday mezzo-forte velocities (0.45 .. 0.65), which the factory presets are levelled on.
+// Prints peak, RMS, the output limiter's deepest gain reduction and CPU time.
 
 #include "../common/RenderUtil.h"
 #include "dsp/Piano.h"
@@ -32,23 +34,23 @@ struct Event
     float velocity;
 };
 
-std::vector<Note> demoPhrase()
+std::vector<Note> demoPhrase (bool mezzoForte)
 {
     std::vector<Note> notes;
     // C major scale up from middle C, mezzo forte
     const int scale[] { 60, 62, 64, 65, 67, 69, 71, 72 };
     for (int i = 0; i < 8; ++i)
-        notes.push_back ({ scale[i], i * 0.25, 0.24, 0.6f });
-    // Chords, piano then forte
+        notes.push_back ({ scale[i], i * 0.25, 0.24, mezzoForte ? 0.55f : 0.6f });
+    // Chords, piano then forte (mf: both moderate)
     for (int n : { 48, 55, 64, 67 })
-        notes.push_back ({ n, 2.25, 1.2, 0.45f });
+        notes.push_back ({ n, 2.25, 1.2, mezzoForte ? 0.5f : 0.45f });
     for (int n : { 41, 53, 57, 60, 65 })
-        notes.push_back ({ n, 3.75, 1.2, 0.85f });
+        notes.push_back ({ n, 3.75, 1.2, mezzoForte ? 0.62f : 0.85f });
     // Pedalled arpeggio over three octaves, then a low A ringing out
     const int arp[] { 36, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84 };
     for (int i = 0; i < 12; ++i)
-        notes.push_back ({ arp[i], 5.25 + i * 0.12, 0.1, 0.55f + 0.02f * i });
-    notes.push_back ({ 21, 8.0, 3.0, 0.8f });
+        notes.push_back ({ arp[i], 5.25 + i * 0.12, 0.1, mezzoForte ? 0.45f + 0.015f * i : 0.55f + 0.02f * i });
+    notes.push_back ({ 21, 8.0, 3.0, mezzoForte ? 0.6f : 0.8f });
     return notes;
 }
 
@@ -74,7 +76,7 @@ try
     std::string presetText, outPath;
     std::vector<Note> notes;
     std::vector<std::pair<double, double>> pedal;
-    bool pedalGiven = false;
+    bool pedalGiven = false, mezzoForte = false;
     double length = 0.0;
     int rate = 48000;
 
@@ -91,6 +93,13 @@ try
         if (arg == "--preset") presetText = render::readFile (value()) + "\n" + presetText;
         else if (arg == "--set") presetText += value() + "\n";
         else if (arg == "--notes") notes = render::parseNotes (value());
+        else if (arg == "--demo")
+        {
+            const auto demo = value();
+            if (demo != "full" && demo != "mf")
+                throw std::runtime_error ("--demo takes full or mf");
+            mezzoForte = demo == "mf";
+        }
         else if (arg == "--pedal") { pedal = parsePedal (value()); pedalGiven = true; }
         else if (arg == "--length") length = std::stod (value());
         else if (arg == "--rate") rate = std::stoi (value());
@@ -99,7 +108,7 @@ try
     }
 
     if (outPath.empty())
-        throw std::runtime_error ("usage: dpiano_render [--preset f] [--set id=value] [--notes n:start:dur[:vel],...] [--pedal start:dur,...] [--length s] [--rate hz] -o out.wav");
+        throw std::runtime_error ("usage: dpiano_render [--preset f] [--set id=value] [--notes n:start:dur[:vel],...] [--demo full|mf] [--pedal start:dur,...] [--length s] [--rate hz] -o out.wav");
 
     const auto preset = dpiano::parsePreset (presetText);
     for (const auto& w : preset.warnings)
@@ -107,7 +116,7 @@ try
 
     if (notes.empty())
     {
-        notes = demoPhrase();
+        notes = demoPhrase (mezzoForte);
         if (! pedalGiven)
             pedal = { { 5.2, 3.9 } };
     }
@@ -169,6 +178,7 @@ try
         }
     }
     const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now() - started).count();
+    const float limiterGain = piano.takeLimiterLowestGain();
 
     std::vector<float> out;
     out.reserve (2 * frames);
@@ -190,9 +200,9 @@ try
     auto db = [] (double x) { return x > 0.0 ? 20.0 * std::log10 (x) : -999.0; };
 
     render::writeWav (outPath, out, rate);
-    std::printf ("%s: \"%s\" %.2fs peak %.1f dBFS rms %.1f dBFS, rendered in %.0f%% of real time%s\n", outPath.c_str(),
-                 preset.name.empty() ? "(defaults)" : preset.name.c_str(), length, db (peak), db (rms),
-                 100.0 * seconds / length, finite ? "" : " NON-FINITE SAMPLES");
+    std::printf ("%s: \"%s\" %.2fs peak %.1f dBFS rms %.1f dBFS, limiter %.1f dB, rendered in %.0f%% of real time%s\n",
+                 outPath.c_str(), preset.name.empty() ? "(defaults)" : preset.name.c_str(), length, db (peak), db (rms),
+                 db (limiterGain), 100.0 * seconds / length, finite ? "" : " NON-FINITE SAMPLES");
     return finite ? 0 : 2;
 }
 catch (const std::exception& e)

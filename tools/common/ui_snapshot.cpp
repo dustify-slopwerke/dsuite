@@ -10,15 +10,24 @@
 // three tracks with test audio (track 1 padded before and after and playing, 2 reversed and
 // stopped, 3 playing), so the looper tab has something to show; looper=countin presses Rec on
 // track 1 with count-in on and stops part way through the count-in bar.
+// dpiano: velmap=<min>,<max>,<sensitivity %> sets the keyboard calibration (MIDI velocities);
+// notes=<velocity>,... plays note-ons before the editor opens; calnotes=<velocity>,... plays them
+// after the clicks (e.g. click=calibrateButton) and lets the keyboard panel see them.
+// Settings files are written to a temporary folder (DUSTIFY_SETTINGS_DIR), never the user's.
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#if DUSTIFY_SNAPSHOT_DSYNTH || DUSTIFY_SNAPSHOT_DAMP
+#if DUSTIFY_SNAPSHOT_DSYNTH || DUSTIFY_SNAPSHOT_DAMP || DUSTIFY_SNAPSHOT_DPIANO
  #include "PluginProcessor.h"
+#endif
+#if DUSTIFY_SNAPSHOT_DPIANO
+ #include "KeyboardPanel.h"
 #endif
 
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <map>
 #include <numbers>
 
 namespace
@@ -129,6 +138,23 @@ void prepareLooper (DampAudioProcessor& p, const juce::String& setup)
     run (0.9); // the playheads part way through
 }
 #endif
+
+#if DUSTIFY_SNAPSHOT_DPIANO
+void playVelocities (juce::AudioProcessor& p, const juce::String& list)
+{
+    p.prepareToPlay (48000.0, 512);
+    juce::AudioBuffer<float> buffer (2, 512);
+    int note = 60;
+    for (const auto& v : juce::StringArray::fromTokens (list, ",", ""))
+    {
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) juce::jlimit (1, 127, v.getIntValue())), 0);
+        midi.addEvent (juce::MidiMessage::noteOff (1, note), 256);
+        p.processBlock (buffer, midi);
+        note += 2;
+    }
+}
+#endif
 } // namespace
 
 int main (int argc, char** argv)
@@ -136,6 +162,7 @@ int main (int argc, char** argv)
     // Positional arguments, then name=value options
     std::vector<juce::String> args, clicks;
     juce::String looperSetup;
+    std::map<juce::String, juce::String> pluginOptions; // velmap, notes, calnotes (dpiano)
     std::vector<std::pair<juce::String, float>> settings;
     for (int i = 1; i < argc; ++i)
     {
@@ -146,6 +173,8 @@ int main (int argc, char** argv)
             clicks.push_back (arg.fromFirstOccurrenceOf ("=", false, false));
         else if (arg.upToFirstOccurrenceOf ("=", false, false) == "looper")
             looperSetup = arg.fromFirstOccurrenceOf ("=", false, false);
+        else if (juce::StringArray { "velmap", "notes", "calnotes" }.contains (arg.upToFirstOccurrenceOf ("=", false, false)))
+            pluginOptions[arg.upToFirstOccurrenceOf ("=", false, false)] = arg.fromFirstOccurrenceOf ("=", false, false);
         else
             settings.emplace_back (arg.upToFirstOccurrenceOf ("=", false, false), arg.fromFirstOccurrenceOf ("=", false, false).getFloatValue());
     }
@@ -156,6 +185,14 @@ int main (int argc, char** argv)
     }
 
     juce::ScopedJuceInitialiser_GUI juce;
+
+    const auto settingsDir = juce::File::getSpecialLocation (juce::File::tempDirectory).getNonexistentChildFile ("dustify-snapshot", "");
+#if JUCE_WINDOWS
+    _putenv_s ("DUSTIFY_SETTINGS_DIR", settingsDir.getFullPathName().toRawUTF8());
+#else
+    setenv ("DUSTIFY_SETTINGS_DIR", settingsDir.getFullPathName().toRawUTF8(), 1);
+#endif
+    const struct RemoveDir { juce::File dir; ~RemoveDir() { dir.deleteRecursively(); } } removeSettingsDir { settingsDir };
 
     const juce::File outDir (juce::File::getCurrentWorkingDirectory().getChildFile (args[0]));
     outDir.createDirectory();
@@ -190,6 +227,27 @@ int main (int argc, char** argv)
         prepareLooper (dynamic_cast<DampAudioProcessor&> (*processor), looperSetup);
 #endif
 
+#if DUSTIFY_SNAPSHOT_DPIANO
+    auto& piano = dynamic_cast<DpianoAudioProcessor&> (*processor);
+    if (const auto it = pluginOptions.find ("velmap"); it != pluginOptions.end())
+    {
+        const auto parts = juce::StringArray::fromTokens (it->second, ",", "");
+        dpiano::VelocityMap map;
+        map.inMin = parts[0].getFloatValue() / 127.0f;
+        map.inMax = parts.size() > 1 ? parts[1].getFloatValue() / 127.0f : 1.0f;
+        map.sensitivity = parts[2].getFloatValue() / 100.0f;
+        piano.setVelocityMap (map, false);
+    }
+    if (const auto it = pluginOptions.find ("notes"); it != pluginOptions.end())
+        playVelocities (piano, it->second);
+#else
+    if (! pluginOptions.empty())
+    {
+        std::cerr << "velmap, notes and calnotes are dpiano options\n";
+        return 1;
+    }
+#endif
+
     // As a host does: createEditor() is private, and the processor tracks its active editor
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor->createEditorAndMakeActive());
 #if ! DUSTIFY_SNAPSHOT_DSYNTH
@@ -215,6 +273,17 @@ int main (int argc, char** argv)
         }
         button->onClick(); // as a click would, but now rather than via the message queue
     }
+
+#if DUSTIFY_SNAPSHOT_DPIANO
+    if (const auto it = pluginOptions.find ("calnotes"); it != pluginOptions.end())
+    {
+        playVelocities (piano, it->second);
+        if (auto* tabs = findTabs (*editor))
+            tabs->setCurrentTabIndex (1, false);
+        if (auto* panel = dynamic_cast<KeyboardPanel*> (findById (*editor, "keyboardPanel")))
+            panel->timerCallback();
+    }
+#endif
 
     if (auto* tabs = findTabs (*editor))
     {

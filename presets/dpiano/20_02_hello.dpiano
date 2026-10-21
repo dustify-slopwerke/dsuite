@@ -6,3 +6,4 @@ aftersound = -14
 sympathetic = 0.7
 room_mix = 0.25
 room_size = 0.6
+master_volume = -0.4

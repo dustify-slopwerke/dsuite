@@ -39,7 +39,15 @@ DpianoAudioProcessorEditor::DpianoAudioProcessorEditor (DpianoAudioProcessor& p)
 
     const auto tabColour = juce::Colour (P::background);
     tabs.addTab ("Piano", tabColour, mainPage.get(), false);
-    tabs.addTab ("Voicing", tabColour, voicingPage.get(), false);
+    voicingTab.addAndMakeVisible (*voicingPage);
+    voicingTab.addAndMakeVisible (keyboardPanel);
+    voicingTab.onResize = [this]
+    {
+        auto area = voicingTab.getLocalBounds();
+        voicingPage->setBounds (area.removeFromTop (voicingPage->preferredHeight()));
+        keyboardPanel.setBounds (area.removeFromTop (Page::rowHeight).removeFromLeft (560));
+    };
+    tabs.addTab ("Voicing", tabColour, &voicingTab, false);
     tabs.setTabBarDepth (30);
     tabs.setOutline (0);
     tabs.setCurrentTabIndex (processor.editorTab, false);

@@ -7,3 +7,4 @@ stretch_tuning = 1.2
 mechanical_noise = 1.3
 mic_distance = 0.05
 room_mix = 0.12
+master_volume = -1.1

@@ -149,6 +149,9 @@ dustify_add_plugin(dpiano
     SOURCES
         Source/dpiano/PluginProcessor.cpp
         Source/dpiano/PluginEditor.cpp
+        Source/dpiano/KeyboardPanel.cpp
+    SNAPSHOT_DEFINITIONS DUSTIFY_SNAPSHOT_DPIANO=1
+    CHECKS_DEFINITIONS DUSTIFY_CHECKS_DPIANO=1
     STATE_FIXTURE tests/fixtures/dpiano_state_v1.bin)
 
 # Offline renderer: preset + notes -> WAV
@@ -157,7 +160,8 @@ target_link_libraries(dpiano_render PRIVATE dpiano_dsp)
 
 if(DUSTIFY_BUILD_TESTS)
     add_executable(dpiano_tests
-        tests/dpiano/PianoTests.cpp)
+        tests/dpiano/PianoTests.cpp
+        tests/dpiano/LimiterTests.cpp)
     target_include_directories(dpiano_tests PRIVATE tests)
     target_link_libraries(dpiano_tests PRIVATE dpiano_dsp Catch2::Catch2WithMain)
     target_compile_definitions(dpiano_tests PRIVATE DPIANO_PRESET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/presets/dpiano")

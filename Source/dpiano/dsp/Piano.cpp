@@ -17,6 +17,11 @@ constexpr float sympatheticCoupling = 2.4e-5f;
 
 // Hammer force (N) -> board input (output units) at a key's full knock level
 constexpr float knockScale = 3.56e-3f;
+
+// Makeup gain (dB) on the whole output, ahead of the volume: everyday mezzo-forte playing comes out
+// around -18 LUFS at volume 0 dB, with the limiter catching the loudest chords. Applied to the
+// finished mix, so the tone doesn't change
+constexpr float outputMakeupDb = 9.5f;
 } // namespace
 
 void Piano::prepare (double newRate)
@@ -26,6 +31,7 @@ void Piano::prepare (double newRate)
     room.prepare (sampleRate);
     noises.prepare (sampleRate);
     pedalStir.prepare (sampleRate);
+    limiter.prepare (sampleRate);
     for (auto& k : keys)
         k.reset();
     held.fill (false);
@@ -62,7 +68,7 @@ void Piano::setPatch (const Patch& newPatch)
     }
 
     patch = newPatch;
-    volume = std::pow (10.0f, patch[PID::MasterVolume] / 20.0f);
+    volume = std::pow (10.0f, (patch[PID::MasterVolume] + outputMakeupDb) / 20.0f);
     coupling = sympatheticCoupling * patch[PID::Sympathetic];
     noiseScale = patch[PID::MechanicalNoise];
     soundboard.setParameters (patch[PID::SoundboardBody], patch[PID::Lid], patch[PID::MicDistance], patch[PID::Bloom]);
@@ -138,10 +144,11 @@ void Piano::refreshDamper (int note)
     keys[index (note)].setDamper (damperAmount (note));
 }
 
-void Piano::noteOn (int note, float velocity)
+void Piano::noteOn (int note, float playedVelocity)
 {
     if (note < lowestKey || note > highestKey)
         return;
+    const float velocity = velocityMap.apply (playedVelocity);
     const auto i = index (note);
     if (keyGeneration[i] != generation)
         configureKey (note);
@@ -294,6 +301,8 @@ void Piano::process (float* left, float* right, int numSamples)
         }
         done += n;
     }
+
+    limiter.process (left, right, numSamples);
 }
 
 } // namespace dpiano

@@ -5,6 +5,7 @@
 
 #include "common/dsp/Noise.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -491,4 +492,129 @@ TEST_CASE ("dynamic range sets the pp .. ff span", "[piano][voicing]")
         return test::db (test::rms (loud) / test::rms (soft));
     };
     CHECK (span (40.0f) > span (14.0f) + 10.0);
+}
+
+TEST_CASE ("velocity map: the default is an exact identity", "[piano][velocity]")
+{
+    const VelocityMap map;
+    CHECK (map.isIdentity());
+    CHECK_FALSE (map.isCalibrated());
+    CHECK (map.sanitised() == map);
+    for (int v = 0; v <= 127; ++v)
+        CHECK (map.apply ((float) v / 127.0f) == (float) v / 127.0f);
+    dustify::Random rng (3);
+    for (int i = 0; i < 1000; ++i)
+    {
+        const float v = unit (rng);
+        CHECK (map.apply (v) == v);
+    }
+
+    // A phrase plays bit for bit as before with the map set explicitly
+    auto phrase = [] (bool setMap)
+    {
+        auto piano = makePiano();
+        if (setMap)
+            piano.setVelocityMap (VelocityMap {});
+        std::vector<float> out;
+        for (auto [note, velocity] : { std::pair { 48, 0.3f }, { 55, 0.55f }, { 60, 0.8f }, { 64, 0.12f } })
+        {
+            piano.noteOn (note, velocity);
+            const auto part = render (piano, 0.15);
+            out.insert (out.end(), part.begin(), part.end());
+        }
+        return out;
+    };
+    CHECK (phrase (false) == phrase (true));
+}
+
+TEST_CASE ("velocity map: the calibrated range fills 0 .. 1, clamped, above a small floor", "[piano][velocity]")
+{
+    VelocityMap map;
+    map.inMin = 20.0f / 127.0f;
+    map.inMax = 100.0f / 127.0f;
+    CHECK (map.isCalibrated());
+    const float floor = VelocityMap::maxFloor;
+    CHECK (map.apply (map.inMin) == Catch::Approx (floor));
+    CHECK (map.apply (map.inMax) == Catch::Approx (1.0f));
+    CHECK (map.apply (60.0f / 127.0f) == Catch::Approx (floor + (1.0f - floor) * 0.5f));
+    CHECK (map.apply (1.0f / 127.0f) == Catch::Approx (floor)); // softer than calibrated: still sounds
+    CHECK (map.apply (1.0f) == Catch::Approx (1.0f));            // harder: clamped
+
+    // The floor never lifts a calibration that starts at 0, and is reached gradually
+    map.inMin = 0.0f;
+    CHECK (map.apply (0.0f) == 0.0f);
+    map.inMin = 0.01f;
+    CHECK (map.apply (0.0f) == Catch::Approx (0.01f));
+
+    // Unusable values are made usable
+    VelocityMap bad;
+    bad.inMin = 0.9f;
+    bad.inMax = 0.2f;
+    bad.sensitivity = 5.0f;
+    const auto sane = bad.sanitised();
+    CHECK (sane.inMax - sane.inMin >= VelocityMap::minSpread - 1.0e-6f);
+    CHECK (sane.inMin >= 0.0f);
+    CHECK (sane.inMax <= 1.0f);
+    CHECK (sane.sensitivity == 1.0f);
+    bad.inMin = std::nanf ("");
+    CHECK (bad.sanitised().isIdentity());
+
+    // Calibration feeds the piano: a calibrated note is the uncalibrated piano at the mapped velocity
+    map.inMin = 0.15f;
+    map.inMax = 0.6f;
+    map.sensitivity = 0.3f;
+    auto calibrated = makePiano();
+    calibrated.setVelocityMap (map);
+    calibrated.noteOn (60, 0.4f);
+    auto plain = makePiano();
+    plain.noteOn (60, map.apply (0.4f));
+    CHECK (render (calibrated, 0.3) == render (plain, 0.3));
+}
+
+TEST_CASE ("velocity map: sensitivity bends the curve monotonically", "[piano][velocity]")
+{
+    for (float sensitivity : { -1.0f, -0.5f, 0.0f, 0.4f, 1.0f })
+    {
+        VelocityMap map;
+        map.inMin = 0.1f;
+        map.inMax = 0.9f;
+        map.sensitivity = sensitivity;
+        float last = -1.0f;
+        for (int v = 0; v <= 127; ++v)
+        {
+            const float out = map.apply ((float) v / 127.0f);
+            CHECK (out >= last);
+            CHECK (out >= 0.0f);
+            CHECK (out <= 1.0f);
+            last = out;
+        }
+        // The ends stay put
+        CHECK (map.apply (0.1f) == Catch::Approx (0.02f));
+        CHECK (map.apply (0.9f) == Catch::Approx (1.0f));
+    }
+
+    VelocityMap easy, hard, flat;
+    easy.sensitivity = 0.5f;
+    hard.sensitivity = -0.5f;
+    CHECK (easy.apply (0.5f) > flat.apply (0.5f)); // softer playing goes further
+    CHECK (hard.apply (0.5f) < flat.apply (0.5f));
+    CHECK (easy.apply (0.5f) == Catch::Approx (std::pow (0.5f, std::exp2 (-0.5f))));
+}
+
+TEST_CASE ("velocity capture: softest and hardest, ignoring velocity 0", "[piano][velocity]")
+{
+    VelocityCapture capture;
+    CHECK_FALSE (capture.enoughRange());
+    CHECK_FALSE (capture.add (0.0f));
+    CHECK (capture.notes == 0);
+    CHECK (capture.add (0.4f));
+    CHECK (capture.add (0.3f));
+    CHECK_FALSE (capture.add (0.35f));
+    CHECK_FALSE (capture.enoughRange()); // 0.1 apart
+    CHECK (capture.add (0.7f));
+    CHECK (capture.enoughRange());
+    const auto map = capture.result (0.2f);
+    CHECK (map.inMin == 0.3f);
+    CHECK (map.inMax == 0.7f);
+    CHECK (map.sensitivity == 0.2f);
 }

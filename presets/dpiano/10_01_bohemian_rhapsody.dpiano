@@ -6,3 +6,4 @@ brilliance = 0.1
 aftersound = -16
 mic_distance = 0.3
 room_mix = 0.2
+master_volume = 0.3
