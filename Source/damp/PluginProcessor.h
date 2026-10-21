@@ -92,6 +92,11 @@ public:
     bool exportTrack (int track, const juce::File&, bool asPlayed, juce::String& error);
     bool importTrack (int track, const juce::File&, juce::String& error);
 
+    // The tempo in effect (BPM): the host's when following it (tempoFollowsHost), else the tempo
+    // parameter. Updated each block.
+    double getEffectiveTempo() const { return effectiveTempo.load (std::memory_order_relaxed); }
+    bool tempoFollowsHost() const { return tempoFromHost.load (std::memory_order_relaxed); }
+
     // Peak levels since the last call (message thread)
     float takeInputPeak() { return inputPeak.exchange (0.0f); }
     float takeOutputPeak() { return outputPeak.exchange (0.0f); }
@@ -166,6 +171,8 @@ private:
     std::array<Biquad, 2> tunerFilter;
     int decimation = 4, decimationPhase = 0;
     std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f };
+    std::atomic<double> effectiveTempo { 120.0 };
+    std::atomic<bool> tempoFromHost { false };
 
     // The input delayed by the latency, for bypass (kept running so switching is seamless)
     juce::AudioBuffer<float> dryDelay { 2, damp::Rig::latencySamples };

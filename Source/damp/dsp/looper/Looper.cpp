@@ -170,6 +170,12 @@ void Looper::setPatch (const Patch& p)
         controls.sync[(size_t) t] = p.on (trackParam (t, TrackParam::Sync));
     }
 
+    controls.quantise = p.on (PID::LooperQuantise);
+    controls.metronome = p.on (PID::MetronomeOn);
+    controls.recOnly = p.on (PID::MetronomeRecOnly);
+    controls.countIn = p.on (PID::CountIn);
+    controls.beatsPerBar = beatsPerBar (std::clamp (p.index (PID::BeatsPerBar), 0, 5));
+
     constexpr PID ids[] { PID::LooperRec, PID::LooperPlayStop, PID::LooperUndo, PID::LooperRedo, PID::LooperClear };
     constexpr Action actions[] { Action::Rec, Action::PlayStop, Action::Undo, Action::Redo, Action::Clear };
     const bool adopt = ! buttonsKnown || resync.exchange (false);
@@ -183,6 +189,16 @@ void Looper::setPatch (const Patch& p)
     buttonsKnown = true;
 }
 
+void Looper::setTransport (double bpm, bool hostRunning, double ppq)
+{
+    if (! std::isfinite (bpm) || bpm <= 0.0)
+        bpm = 120.0;
+    transport.bpm = std::clamp (bpm, 10.0, 1000.0);
+    transport.host = hostRunning && std::isfinite (ppq);
+    transport.ppq = transport.host ? ppq : 0.0;
+    tempo.store (transport.bpm, std::memory_order_relaxed);
+}
+
 LoopStore* Looper::usable() const
 {
     return store != nullptr && store->pool.sampleRate() == rate ? store : nullptr;
@@ -191,6 +207,7 @@ LoopStore* Looper::usable() const
 void Looper::process (float* left, float* right, int n)
 {
     lastBlock.store (nowNanos(), std::memory_order_relaxed);
+    numClicks = 0;
     if (int expected = 0; ! owner.compare_exchange_strong (expected, 1, std::memory_order_acquire))
         return; // a message call holds the engine (only ever while audio was idle): the input passes
 
@@ -199,8 +216,18 @@ void Looper::process (float* left, float* right, int n)
     {
         on = controls.on;
         if (! on)
+        {
+            cancelArm();
             stopAll();
+        }
     }
+    if (controls.metronome && ! metronomeWasOn)
+    {
+        // Switched on: the free clock starts on a bar, at once
+        beatPos = 0.0;
+        lastClick = std::numeric_limits<int64_t>::min() / 2;
+    }
+    metronomeWasOn = controls.metronome;
     selected = controls.selected;
     for (int t = 0; t < numTracks; ++t)
     {
@@ -230,11 +257,31 @@ void Looper::process (float* left, float* right, int n)
         numEdgeActions = 0;
     }
 
-    if (usable() != nullptr && n > 0)
+    // The beats run with or without loops (the metronome needs no pool)
+    for (int at = 0; at < n;)
     {
-        for (int at = 0; at < n;)
+        int chunk = std::min (n - at, maxBlock);
+        if (arm.track >= 0)
         {
-            const int chunk = std::min (n - at, maxBlock);
+            // An armed recording starts on its frame exactly: the chunk ends there
+            if (usable() == nullptr)
+                cancelArm();
+            else if (elapsed >= arm.at)
+            {
+                const int t = arm.track;
+                const bool quantised = arm.quantised;
+                arm = {};
+                startRecording (t, quantised);
+            }
+            else
+            {
+                chunk = (int) std::min<int64_t> (chunk, arm.at - elapsed);
+            }
+        }
+        clickGrid (at, chunk);
+
+        if (usable() != nullptr)
+        {
             float* l = left + at;
             float* r = right == nullptr ? nullptr : right + at;
             std::copy_n (l, chunk, inL.begin());
@@ -270,8 +317,11 @@ void Looper::process (float* left, float* right, int n)
                     remap (t, true);
                 }
             }
-            at += chunk;
         }
+        elapsed += chunk;
+        if (transport.host)
+            transport.ppq += (double) chunk * transport.bpm / (60.0 * rate);
+        at += chunk;
     }
 
     publishStatus();
@@ -361,8 +411,8 @@ int Looper::record (int t, int n, bool mono)
     auto& take = h.current;
     auto& pool = store->pool;
     auto& tr = tracks[(size_t) t];
-    const int64_t bar = tr.ending ? closeBar (t) : 0;
-    if (tr.ending && bar == 0)
+    const int64_t target = tr.ending ? closeTarget (t, take.length + 1) : 0;
+    if (tr.ending && target == 0)
     {
         closeRecording (t); // no grid any more (the track went free, or the master went)
         return 0;
@@ -392,7 +442,7 @@ int Looper::record (int t, int n, bool mono)
         pool.samples (c, 1)[o] = mono ? inL[(size_t) i] : inR[(size_t) i];
         ++take.length;
         markDirty (t, at);
-        if (bar > 0 && take.length % bar == 0)
+        if (take.length == target)
         {
             closeRecording (t); // the bar it was waiting for
             return i + 1;
@@ -635,6 +685,17 @@ void Looper::doAction (Action a, int t)
         return;
     if (t < 0 || t >= numTracks)
         t = selected;
+    if (arm.track >= 0)
+    {
+        // Waiting to record: these give up (Rec: see rec)
+        const bool onArmed = t == arm.track;
+        if (a == Action::PlayStop || a == Action::ClearAll || (onArmed && (a == Action::Stop || a == Action::Clear || a == Action::Undo)))
+        {
+            cancelArm();
+            if (a != Action::ClearAll)
+                return;
+        }
+    }
     switch (a)
     {
         case Action::Rec: rec (t); break;
@@ -663,6 +724,20 @@ void Looper::doAction (Action a, int t)
 
 void Looper::rec (int t)
 {
+    if (arm.track >= 0)
+    {
+        // Armed: Rec on another empty track moves the arm there; on the armed one it gives up
+        if (arm.track != t && tracks[(size_t) t].state == State::Empty && tracks[(size_t) t].pending == Op::None)
+        {
+            arm.track = t;
+            return;
+        }
+        const bool same = arm.track == t;
+        cancelArm();
+        if (same)
+            return;
+    }
+
     // One track records at a time: pressing Rec on another closes the one that was
     for (int o = 0; o < numTracks; ++o)
         if (o != t)
@@ -678,7 +753,12 @@ void Looper::rec (int t)
         return;
     switch (tr.state)
     {
-        case State::Empty: startRecording (t); break;
+        case State::Empty:
+            if (isFirstRecording (t))
+                beginRecording (t);
+            else
+                startRecording (t);
+            break;
         case State::Recording: requestClose (t); break;
         case State::Playing: if (canOverdub (t)) punchIn (t); break;
         case State::Overdubbing: punchOut (t, false); break;
@@ -692,12 +772,63 @@ void Looper::rec (int t)
     }
 }
 
-void Looper::startRecording (int t)
+bool Looper::isFirstRecording (int t) const
 {
-    bool content = false;
     for (int o = 0; o < numTracks; ++o)
-        content = content || (o != t && (store->tracks[(size_t) o].current.length > 0 || tracks[(size_t) o].state == State::Recording));
-    if (! content)
+        if (o != t && (store->tracks[(size_t) o].current.length > 0 || tracks[(size_t) o].state == State::Recording))
+            return false;
+    return true;
+}
+
+void Looper::beginRecording (int t)
+{
+    // The grid it counts in or waits on: the host's bar lines, or the free clock's
+    const int bpb = controls.beatsPerBar;
+    const double beat = tempo::beatFrames (transport.bpm, rate);
+    const double pos = transport.host ? transport.ppq : beatPos;
+    const double intoBar = pos - std::floor (pos / bpb) * bpb; // beats since its last bar line
+    frozenBpm = transport.bpm;
+    frozenBeatsPerBar = bpb;
+
+    if (controls.countIn)
+    {
+        // One bar of clicks, from now or (following a host) its next bar line, then record
+        const double toBar = ! transport.host || intoBar < 1.0e-6 ? 0.0 : bpb - intoBar;
+        gridOrigin = elapsed + std::llround (toBar * beat);
+        frozen = true;
+        arm = { t, gridOrigin + std::llround (bpb * beat), true, controls.quantise };
+        return;
+    }
+    if (controls.quantise)
+    {
+        frozen = true;
+        const auto since = std::llround (intoBar * beat);
+        const auto tolerance = std::llround (closeToleranceMs * 0.001 * rate);
+        if (controls.metronome && ! controls.recOnly && since > tolerance)
+        {
+            // The clicks are heard: start on the next bar line
+            gridOrigin = elapsed + std::llround ((bpb - intoBar) * beat);
+            arm = { t, gridOrigin, false, true };
+            return;
+        }
+        // Bar 1 is now, the take starting there. The host's grid can't move: the beats stay on it.
+        gridOrigin = transport.host ? elapsed - since : elapsed;
+    }
+    startRecording (t, controls.quantise);
+}
+
+void Looper::cancelArm()
+{
+    if (arm.track < 0)
+        return;
+    arm = {};
+    frozen = false; // the grid carries on from where it was
+}
+
+void Looper::startRecording (int t, bool quantised)
+{
+    const bool first = isFirstRecording (t);
+    if (first)
     {
         // The first track: it will set the master length
         masterTrack = t;
@@ -705,6 +836,9 @@ void Looper::startRecording (int t)
         clock = origin = 0;
     }
     auto& tr = tracks[(size_t) t];
+    tr.quantised = quantised && first;
+    if (tr.quantised)
+        quantisedBar = tempo::barFrames (frozenBpm, rate, frozenBeatsPerBar);
     clearHistory (t, false);
     store->tracks[(size_t) t].current.clear (store->pool);
     tr.start = tr.end = 0;
@@ -716,11 +850,20 @@ void Looper::startRecording (int t)
     tr.blend = 1.0f;
 }
 
-int64_t Looper::closeBar (int t) const
+int64_t Looper::closeTarget (int t, int64_t length) const
 {
-    // The master length is the grid (the engine has no other): the master, and free tracks, have none
     const auto& tr = tracks[(size_t) t];
-    return t != masterTrack && tr.sync && masterLength > 0 ? masterLength : 0;
+    if (tr.quantised && t == masterTrack && masterLength == 0)
+    {
+        // A quantised master: the next whole bar at the tempo it started at
+        for (int64_t k = std::max<int64_t> (1, (int64_t) std::floor ((double) length / quantisedBar));; ++k)
+            if (const auto at = std::llround ((double) k * quantisedBar); at >= length)
+                return at;
+    }
+    // A sync track: the next multiple of the master length. Free tracks have no grid.
+    if (t != masterTrack && tr.sync && masterLength > 0)
+        return std::max<int64_t> (1, (length + masterLength - 1) / masterLength) * masterLength;
+    return 0;
 }
 
 void Looper::requestClose (int t)
@@ -728,9 +871,19 @@ void Looper::requestClose (int t)
     auto& tr = tracks[(size_t) t];
     if (tr.ending)
         return; // already waiting for the bar
-    const int64_t bar = closeBar (t);
     const int64_t length = store->tracks[(size_t) t].current.length;
-    if (bar > 0 && length >= minRecording)
+    if (tr.quantised && t == masterTrack && masterLength == 0 && length >= minRecording)
+    {
+        const auto tolerance = std::min<int64_t> (std::llround (closeToleranceMs * 0.001 * rate), (int64_t) (quantisedBar / 4.0));
+        const int64_t at = tempo::quantisedClose (length, quantisedBar, tolerance);
+        if (at > length)
+        {
+            tr.ending = true;
+            return;
+        }
+        truncateRecording (t, at); // on a bar, or just past one: close at it
+    }
+    else if (const int64_t bar = t != masterTrack && tr.sync ? masterLength : 0; bar > 0 && length >= minRecording)
     {
         const int64_t over = length % bar;
         const int64_t tolerance = std::min ((int64_t) std::llround (closeToleranceMs * 0.001 * rate), bar / 4);
@@ -766,7 +919,11 @@ void Looper::closeRecording (int t)
 {
     auto& tr = tracks[(size_t) t];
     auto& h = store->tracks[(size_t) t];
+    const bool first = t == masterTrack && masterLength == 0, quantised = first && tr.quantised;
     tr.ending = false;
+    tr.quantised = false;
+    if (first)
+        frozen = false; // the master's grid takes over
     flushDirty (t);
     if (h.current.length < minRecording)
     {
@@ -780,9 +937,11 @@ void Looper::closeRecording (int t)
     }
     tr.start = 0;
     tr.end = h.current.length;
-    if (t == masterTrack && masterLength == 0)
+    if (quantised)
+        tr.end = tempo::wholeBars (tr.end, quantisedBar); // trimmed, or padded with silence
+    if (first)
     {
-        masterLength = h.current.length;
+        masterLength = tr.end - tr.start;
         origin = tr.anchor;
     }
     tr.voice.m = mappingFor (t);
@@ -1032,6 +1191,7 @@ void Looper::clearTrack (int t)
     tr.state = State::Empty;
     tr.pending = Op::None;
     tr.ending = false;
+    tr.quantised = false;
     tr.gate = tr.gateTarget = tr.writeGain = tr.writeTarget = 0.0f;
     tr.start = tr.end = tr.anchor = 0;
     tr.blend = 1.0f;
@@ -1233,6 +1393,8 @@ void Looper::apply (const Command& c)
             masterTrack = -1;
             masterLength = clock = origin = 0;
             dirty = {};
+            cancelArm();
+            frozen = false;
             return;
         case Command::Type::Action:
             if (on || c.action == (int) Action::ClearAll || c.action == (int) Action::Clear || c.action == (int) Action::Undo
@@ -1334,6 +1496,8 @@ void Looper::apply (const Command& c)
                 clearTrack (i);
             masterTrack = -1;
             masterLength = clock = origin = 0;
+            cancelArm();
+            frozen = false;
             break;
         case Command::Type::Action:
         case Command::Type::Swap: break;
@@ -1362,7 +1526,7 @@ void Looper::publishStatus()
         p.source.store (hasLoop ? m.start + sourcePhase (m, phase) : length, std::memory_order_relaxed);
         p.crossfade.store (tr.crossfadeMs, std::memory_order_relaxed);
         p.flags.store ((m.sync ? 1 : 0) | (tr.reverse ? 2 : 0) | (tr.half ? 4 : 0) | (tr.mute ? 8 : 0) | (t == masterTrack ? 16 : 0)
-                           | (tr.ending ? 32 : 0),
+                           | (tr.ending ? 32 : 0) | (t == arm.track ? 64 : 0),
                        std::memory_order_relaxed);
         p.front.store (s == nullptr ? 0 : s->tracks[(size_t) t].current.front, std::memory_order_relaxed);
         p.undo.store (s == nullptr ? 0 : s->tracks[(size_t) t].undoCount, std::memory_order_relaxed);
@@ -1373,6 +1537,125 @@ void Looper::publishStatus()
     pubSelected.store (selected, std::memory_order_relaxed);
     pubOn.store (on, std::memory_order_relaxed);
     pubRunning.store (running(), std::memory_order_relaxed);
+
+    const int bpb = grid() == Grid::Armed ? frozenBeatsPerBar : controls.beatsPerBar;
+    const double whole = std::floor (beatPos);
+    pubBeatsPerBar.store (bpb, std::memory_order_relaxed);
+    pubBeat.store ((int) floorMod ((int64_t) whole, bpb), std::memory_order_relaxed);
+    pubBeatPhase.store (beatPos - whole, std::memory_order_relaxed);
+    pubMasterBars.store (masterLength > 0 ? masterBeats() / controls.beatsPerBar : 0, std::memory_order_relaxed);
+    pubHostGrid.store (grid() == Grid::Host, std::memory_order_relaxed);
+    pubArmed.store (arm.track, std::memory_order_relaxed);
+    const double beat = tempo::beatFrames (frozenBpm, rate);
+    pubCountIn.store (arm.track >= 0 && arm.countIn ? (int) std::ceil ((double) (arm.at - elapsed) / beat - 1.0e-9) : 0,
+                      std::memory_order_relaxed);
+}
+
+// ======================================================================================
+// The beat grid (owner)
+
+Looper::Grid Looper::grid() const
+{
+    if (masterLength > 0 && running())
+        return Grid::Master;
+    if (arm.track >= 0 || frozen)
+        return Grid::Armed;
+    return transport.host ? Grid::Host : Grid::Free;
+}
+
+int Looper::masterBeats() const
+{
+    const double bar = tempo::barFrames (transport.bpm, rate, controls.beatsPerBar);
+    return (int) std::clamp<int64_t> (std::llround ((double) masterLength / bar), 1, 4096) * controls.beatsPerBar;
+}
+
+void Looper::click (int at, int64_t frame, bool accent, bool audible)
+{
+    // Where grids hand over, one beat may come up twice a frame or two apart: once is enough
+    // (unless the second is an accent and the first wasn't)
+    const auto guard = std::llround (closeToleranceMs * 0.001 * rate);
+    if (frame - lastClick < guard && ! (accent && ! lastAccent))
+        return;
+    lastClick = frame;
+    lastAccent = accent;
+    if (audible && numClicks < maxClicks)
+        clickList[(size_t) numClicks++] = { at + (int) (frame - elapsed), accent };
+}
+
+void Looper::clickGrid (int at, int n)
+{
+    // A count-in always clicks (even with the metronome off); otherwise the metronome's switches
+    // decide. (Its level still applies: at -48 dB nothing is heard.)
+    const bool countingIn = arm.track >= 0 && arm.countIn;
+    bool writing = countingIn;
+    for (const auto& tr : tracks)
+        writing = writing || tr.state == State::Recording || tr.state == State::Overdubbing;
+    const bool audible = countingIn || (controls.metronome && (! controls.recOnly || writing));
+
+    // Whole beats b in (pos - step, pos + (n - 1) * step], each on the first frame at or past it
+    auto steady = [&] (double pos, double step, int bpb)
+    {
+        for (auto b = (int64_t) std::floor (pos - step) + 1; (double) b <= pos + (n - 1) * step; ++b)
+        {
+            const auto i = std::clamp<int64_t> ((int64_t) std::ceil (((double) b - pos) / step - 1.0e-6), 0, n - 1);
+            click (at, elapsed + i, floorMod (b, bpb) == 0, audible);
+        }
+    };
+
+    switch (grid())
+    {
+        case Grid::Master:
+        {
+            // Beat k of the loop's B at phase round (k * M / B)
+            const int64_t m = masterLength, beats = masterBeats();
+            auto beatAt = [&] (int64_t k) { return std::llround ((double) k * (double) m / (double) beats); };
+            int64_t phase = floorMod (clock - origin, m);
+            for (int i = 0; i < n;)
+            {
+                const int64_t len = std::min<int64_t> (n - i, m - phase);
+                auto k = std::min<int64_t> (beats, (int64_t) std::ceil ((double) phase * (double) beats / (double) m));
+                while (k > 0 && beatAt (k - 1) >= phase)
+                    --k;
+                while (beatAt (k) < phase)
+                    ++k;
+                for (; k < beats && beatAt (k) < phase + len; ++k)
+                    click (at, elapsed + i + beatAt (k) - phase, k % controls.beatsPerBar == 0, audible);
+                i += (int) len;
+                phase = phase + len == m ? 0 : phase + len;
+            }
+            beatPos = (double) phase * (double) beats / (double) m;
+            break;
+        }
+        case Grid::Armed:
+        {
+            // Beat k (negative before bar 1) on frame gridOrigin + round (k * beat)
+            const double beat = tempo::beatFrames (frozenBpm, rate);
+            auto beatAt = [&] (int64_t k) { return gridOrigin + std::llround ((double) k * beat); };
+            auto k = (int64_t) std::ceil ((double) (elapsed - gridOrigin) / beat);
+            while (beatAt (k - 1) >= elapsed)
+                --k;
+            while (beatAt (k) < elapsed)
+                ++k;
+            for (; beatAt (k) < elapsed + n; ++k)
+                click (at, beatAt (k), floorMod (k, frozenBeatsPerBar) == 0, audible);
+            beatPos = (double) (elapsed + n - gridOrigin) / beat;
+            break;
+        }
+        case Grid::Host:
+        {
+            const double step = transport.bpm / (60.0 * rate);
+            steady (transport.ppq, step, controls.beatsPerBar);
+            beatPos = transport.ppq + n * step;
+            break;
+        }
+        case Grid::Free:
+        {
+            const double step = transport.bpm / (60.0 * rate);
+            steady (beatPos, step, controls.beatsPerBar);
+            beatPos += n * step;
+            break;
+        }
+    }
 }
 
 // ======================================================================================
@@ -1503,6 +1786,7 @@ Looper::TrackStatus Looper::trackStatus (int track) const
     s.muted = (f & 8) != 0;
     s.master = (f & 16) != 0;
     s.ending = (f & 32) != 0;
+    s.armed = (f & 64) != 0;
     s.front = p.front.load (std::memory_order_relaxed);
     s.canOverdub = ! s.reverse && ! s.half;
     s.undoLevels = p.undo.load (std::memory_order_relaxed);
@@ -1531,6 +1815,13 @@ Looper::Status Looper::status() const
     s.masterLength = pubMasterLength.load (std::memory_order_relaxed);
     s.running = pubRunning.load (std::memory_order_relaxed);
     s.poolFullCount = poolFull.load (std::memory_order_relaxed);
+    s.beatsPerBar = pubBeatsPerBar.load (std::memory_order_relaxed);
+    s.beat = pubBeat.load (std::memory_order_relaxed);
+    s.beatPhase = pubBeatPhase.load (std::memory_order_relaxed);
+    s.masterBars = pubMasterBars.load (std::memory_order_relaxed);
+    s.hostGrid = pubHostGrid.load (std::memory_order_relaxed);
+    s.armedTrack = pubArmed.load (std::memory_order_relaxed);
+    s.countInBeatsLeft = pubCountIn.load (std::memory_order_relaxed);
     return s;
 }
 

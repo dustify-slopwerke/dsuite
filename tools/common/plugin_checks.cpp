@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <map>
 
 namespace
 {
@@ -123,6 +124,21 @@ void checkSavedFixture (const juce::File& file)
     b.setStateInformation (saved.getData(), (int) saved.getSize());
     juce::MemoryBlock again;
     b.getStateInformation (again);
+
+    // Every parameter it holds loads with its saved value (even when the bytes change, e.g. after
+    // parameters were added)
+    const auto before = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+    const auto after = juce::AudioProcessor::getXmlFromBinary (again.getData(), (int) again.getSize());
+    if (before == nullptr || after == nullptr)
+        return fail ("state fixture " + file.getFileName() + " isn't XML");
+    std::map<juce::String, juce::String> loaded;
+    for (auto* p : after->getChildWithTagNameIterator ("PARAM"))
+        loaded[p->getStringAttribute ("id")] = p->getStringAttribute ("value");
+    int changed = 0;
+    for (auto* p : before->getChildWithTagNameIterator ("PARAM"))
+        if (const auto id = p->getStringAttribute ("id"); loaded[id] != p->getStringAttribute ("value") && ++changed <= 5)
+            fail ("state fixture: " + id + " saved " + p->getStringAttribute ("value") + ", loads as " + loaded[id]);
+
     if (again != saved)
         fail ("state fixture " + file.getFileName() + " no longer round-trips byte for byte");
     if (fixtureState() != saved)
@@ -392,6 +408,82 @@ void checkLoopsInState()
         fail ("loading a session without loops left the old ones");
 }
 
+// A session saved before the master output existed applied output_volume after the looper: it
+// loads with that level moved into every loop's level (if it has loops), so loops and live sound
+// keep their balance, and the parameters it doesn't mention go to their defaults
+void checkOldSessionMigration()
+{
+    auto value = [] (DampAudioProcessor& p, const char* id) { return p.apvts.getRawParameterValue (id)->load(); };
+    auto set = [] (DampAudioProcessor& p, const char* id, float v)
+    {
+        auto* param = p.apvts.getParameter (id);
+        param->setValueNotifyingHost (param->convertTo0to1 (v));
+    };
+    // Saved without the parameters added with master_out
+    auto oldSession = [&] (bool withLoops)
+    {
+        DampAudioProcessor a;
+        a.getLooper().setIdleTimeout (0.0);
+        a.prepareToPlay (48000.0, 256);
+        a.getLooper().createPool (48000.0, 10.0);
+        set (a, "output_volume", -9.0f);
+        set (a, "track2_level", -3.0f);
+        set (a, "track3_level", -44.0f);
+        set (a, "track4_level", -48.0f);
+        if (withLoops)
+        {
+            std::vector<float> l (20000, 0.1f);
+            a.getLooper().setTrackAudio (0, l.data(), l.data(), (int64_t) l.size());
+        }
+        juce::MemoryBlock state;
+        a.getStateInformation (state);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+        const auto xmlBytes = (size_t) juce::ByteOrder::littleEndianInt (juce::addBytesToPointer (state.getData(), 4)) + 9;
+        for (const char* id : { "master_out", "tempo", "tempo_follow_host", "looper_quantise", "metronome_on", "metronome_level",
+                                "metronome_accent", "beats_per_bar", "count_in", "metronome_rec_only" })
+            if (auto* p = xml->getChildByAttribute ("id", id))
+                xml->removeChildElement (p, true);
+        juce::MemoryBlock old;
+        juce::AudioProcessor::copyXmlToBinary (*xml, old);
+        if (state.getSize() > xmlBytes)
+            old.append (juce::addBytesToPointer (state.getData(), (int) xmlBytes), state.getSize() - xmlBytes);
+        return old;
+    };
+
+    for (bool withLoops : { true, false })
+    {
+        const auto old = oldSession (withLoops);
+        DampAudioProcessor b;
+        b.getLooper().setIdleTimeout (0.0);
+        b.prepareToPlay (48000.0, 256);
+        set (b, "master_out", 6.0f); // absent from the session: back to its default
+        set (b, "tempo", 90.0f);
+        b.setStateInformation (old.getData(), (int) old.getSize());
+        const float shift = withLoops ? -9.0f : 0.0f;
+        if (std::abs (value (b, "output_volume") + 9.0f) > 1.0e-4f || std::abs (value (b, "track1_level") - shift) > 1.0e-4f
+            || std::abs (value (b, "track2_level") - (-3.0f + shift)) > 1.0e-4f
+            || std::abs (value (b, "track3_level") - (withLoops ? -48.0f : -44.0f)) > 1.0e-4f
+            || std::abs (value (b, "track4_level") + 48.0f) > 1.0e-4f)
+            fail (juce::String ("an old session's loop levels didn't take its output volume") + (withLoops ? "" : " (no loops)") + ": track 1 "
+                  + juce::String (value (b, "track1_level")) + " dB, track 2 " + juce::String (value (b, "track2_level")) + " dB");
+        if (std::abs (value (b, "master_out")) > 1.0e-4f || std::abs (value (b, "tempo") - 120.0f) > 1.0e-3f)
+            fail ("parameters an old session doesn't mention didn't go to their defaults");
+        if (withLoops && b.getLooper().trackStatus (0).length != 20000)
+            fail ("an old session's loops didn't load");
+    }
+
+    // A current session is left as it is
+    DampAudioProcessor a;
+    set (a, "output_volume", -9.0f);
+    set (a, "master_out", 3.0f);
+    juce::MemoryBlock state;
+    a.getStateInformation (state);
+    DampAudioProcessor c;
+    c.setStateInformation (state.getData(), (int) state.getSize());
+    if (std::abs (value (c, "track1_level")) > 1.0e-4f || std::abs (value (c, "master_out") - 3.0f) > 1.0e-4f)
+        fail ("a current session's levels changed on loading");
+}
+
 // --session-bench a.wav b.wav ...: fills a full looper pool (8 tracks, 5 minutes at 48 kHz)
 // with the files' audio, cycled, and reports what the session's loops cost against float32, and
 // how long saving and loading them take
@@ -492,6 +584,7 @@ int main (int argc, char** argv)
     checkBoardOrder();
     checkTuner();
     checkLoopsInState();
+    checkOldSessionMigration();
 #endif
     if (argc == 2)
         checkSavedFixture (juce::File (argv[1]));

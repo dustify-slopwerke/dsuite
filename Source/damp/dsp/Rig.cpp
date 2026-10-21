@@ -19,6 +19,8 @@ void Rig::setPatch (const Patch& p)
     pedals.setPatch (p);
     loops.setPatch (p);
     outputGain.target = p[PID::OutputVolume] <= -48.0f ? 0.0f : std::pow (10.0f, p[PID::OutputVolume] / 20.0f);
+    masterGain.target = p[PID::MasterOutput] <= -48.0f ? 0.0f : std::pow (10.0f, p[PID::MasterOutput] / 20.0f);
+    metronome.setPatch (p[PID::MetronomeLevel], p.on (PID::MetronomeAccent));
 }
 
 void Rig::setBoard (const BoardOrder& b)
@@ -36,6 +38,7 @@ void Rig::prepare (double sampleRate, int maxImpulseLength)
     dipStep = (float) (1.0 / (0.003 * rate)); // 3 ms each way
     amp.prepare (rate);
     loops.prepare (rate); // keeps its loops
+    metronome.prepare (rate);
     pedals.prepare (rate, rate * (1 << dustify::Oversampler::maxStages));
     for (auto& c : cab)
         c.prepare (std::max (1, maxImpulseLength), (int) (0.03 * rate));
@@ -55,6 +58,8 @@ void Rig::reset()
     }
     dip = 1.0f;
     outputGain.snap();
+    masterGain.snap();
+    metronome.reset();
 }
 
 void Rig::setCabKernel (const dustify::ConvolutionKernel* k)
@@ -136,12 +141,25 @@ void Rig::processChunk (float* left, float* right, int n, bool monoInput)
         }
     }
 
-    loops.process (left, right, n);
-
-    // Output volume
+    // The preset's level: recorded with the loops
     for (int i = 0; i < n; ++i)
     {
         const float g = outputGain.next (smoothing);
+        left[i] *= g;
+        if (right != nullptr)
+            right[i] *= g;
+    }
+
+    loops.setTransport (bpmNow, hostTransport, hostPpq);
+    loops.process (left, right, n);
+    if (hostTransport)
+        hostPpq += (double) n * bpmNow / (60.0 * rate);
+
+    // The clicks, never recorded; then the master output over everything
+    metronome.render (left, right, n, loops.clicks(), loops.clickCount());
+    for (int i = 0; i < n; ++i)
+    {
+        const float g = masterGain.next (smoothing);
         left[i] *= g;
         if (right != nullptr)
             right[i] *= g;

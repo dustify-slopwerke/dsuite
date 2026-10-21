@@ -7,6 +7,8 @@
 
 #include "common/plugin/ParamLayout.h"
 
+#include <map>
+
 using dustify::toJuce;
 
 DampAudioProcessor::DampAudioProcessor()
@@ -467,13 +469,26 @@ void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             takenKernel = kernel;
         }
 
-    double bpm = 120.0;
-    if (auto* host = getPlayHead())
+    // The tempo: the host's when following it (a Standalone app's play head isn't a host's), else
+    // the tempo parameter. The looper's beats follow the host's position while it plays.
+    const auto patch = currentPatch();
+    const bool follow = patch.on (damp::PID::TempoFollowHost) && wrapperType != wrapperType_Standalone;
+    double bpm = patch[damp::PID::Tempo], ppq = 0.0;
+    bool fromHost = false, hostRunning = false;
+    if (auto* host = getPlayHead(); host != nullptr && follow)
         if (const auto position = host->getPosition())
             if (const auto hostBpm = position->getBpm(); hostBpm && *hostBpm > 0.0)
+            {
                 bpm = *hostBpm;
-    rig.setTempo (bpm);
-    rig.setPatch (currentPatch());
+                fromHost = true;
+                const auto hostPpq = position->getPpqPosition();
+                hostRunning = position->getIsPlaying() && hostPpq.hasValue();
+                ppq = hostPpq.orFallback (0.0);
+            }
+    effectiveTempo.store (bpm, std::memory_order_relaxed);
+    tempoFromHost.store (fromHost, std::memory_order_relaxed);
+    rig.setTransport (bpm, hostRunning, ppq);
+    rig.setPatch (patch);
     rig.setBoard (readBoard());
     auto* left = buffer.getWritePointer (0);
     auto* right = buffer.getNumChannels() >= 2 ? buffer.getWritePointer (1) : nullptr;
@@ -593,6 +608,32 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
         xml->removeChildElement (ir, true);
     }
     setUserImpulse (irName, std::move (samples), irRate);
+
+    // replaceState() leaves parameters the session doesn't mention as they are: they go to their
+    // defaults. A session from before the master output (master_out) applied output_volume after
+    // the looper: its preset level becomes part of each loop's level, so the loops keep their
+    // level against the live sound.
+    std::map<juce::String, juce::XmlElement*> saved;
+    for (auto* child : xml->getChildWithTagNameIterator ("PARAM"))
+        saved[child->getStringAttribute ("id")] = child;
+    const bool beforeMaster = saved.find ("master_out") == saved.end();
+    const float oldVolume = saved.count ("output_volume") != 0 ? (float) saved["output_volume"]->getDoubleAttribute ("value") : 0.0f;
+    for (const auto& info : damp::allParams())
+        if (saved.find (toJuce (info.id)) == saved.end())
+        {
+            auto* param = xml->createNewChildElement ("PARAM");
+            param->setAttribute ("id", toJuce (info.id));
+            param->setAttribute ("value", info.def);
+            saved[toJuce (info.id)] = param;
+        }
+    if (beforeMaster && loops.has_value() && ! loops->empty())
+        for (int t = 0; t < damp::looperTracks; ++t)
+        {
+            const auto& info = damp::paramInfo (damp::trackParam (t, damp::TrackParam::Level));
+            auto* param = saved[toJuce (info.id)];
+            const float db = (float) param->getDoubleAttribute ("value", info.def);
+            param->setAttribute ("value", db <= info.min ? (double) info.min : (double) juce::jlimit (info.min, info.max, db + oldVolume));
+        }
     apvts.replaceState (juce::ValueTree::fromXml (*xml));
 
     // replaceState() skips parameters whose restored value rounds to their current one, which

@@ -9,9 +9,9 @@
 // A mono input runs one amp (the output is the same on both sides), a stereo one two. The output
 // is shifted back by the plugin's latency unless --keep-latency. --guitar plays plucked strings (a
 // stand-in for a DI'd guitar: "note:start:dur[:vel],..." or "demo"), peaking at --level (-12 dBFS). --ir loads a cabinet impulse
-// response and selects it (over any preset's cab). --bpm sets the tempo synced pedals follow (120);
-// --tail adds that much silence after the input so delays and reverbs ring out. Prints peak, RMS
-// and CPU time.
+// response and selects it (over any preset's cab). --bpm sets the tempo synced pedals and the
+// looper's beats follow (120); --tail adds that much silence after the input so delays and reverbs
+// ring out. Prints peak, RMS and CPU time.
 //
 // --loop drives the looper (switching it on): a comma-separated list of action[:track]@seconds,
 // actions rec, play (play / stop all), stop / start (one track), undo, redo, clear, clearall;
@@ -19,6 +19,8 @@
 // set:id=value@s sets any parameter then (e.g. set:track2_reverse=on@6). Tracks count from 1
 // (default: the selected one). Actions land at the start of the block containing the time. E.g.
 //   --guitar demo --tail 8 --loop "rec@0.5,rec@2.5,rec:2@2.5,rec:2@4.5,set:track1_half=on@7"
+// Session settings go the same way, e.g. the metronome with a count-in and a quantised first loop:
+//   --loop "set:metronome_on=on@0,set:count_in=on@0,set:looper_quantise=on@0,rec@0.5,rec@4.6"
 // --loop-out writes each non-empty track's recording to prefix<N>.wav afterwards.
 
 #include "../common/RenderUtil.h"

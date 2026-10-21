@@ -32,6 +32,7 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
             { "Output", 234, { Oversampling, OutputVolume }, P::global },
             { "Cabinet", 378, { Cab, Mic, MicPosition, MicDistance }, P::effects },
         } }, designWidth - 16);
+    page->setTooltip (OutputVolume, "This preset's level. Loops record at it; Master sets the overall volume.");
     ampTab.addAndMakeVisible (*page);
     pedalViewport.setViewedComponent (&pedalboard, false);
     pedalViewport.setScrollBarsShown (true, false);
@@ -61,6 +62,23 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
     outputMeter.setTooltip ("Output level");
     content.addAndMakeVisible (inputMeter);
     content.addAndMakeVisible (outputMeter);
+
+    // The master output: everything heard, live sound and loops (session only, not in presets)
+    masterLabel.setText ("Master", juce::dontSendNotification);
+    masterLabel.setFont (juce::FontOptions (12.5f));
+    masterLabel.setColour (juce::Label::textColourId, juce::Colour (P::dimText));
+    masterLabel.setJustificationType (juce::Justification::centredRight);
+    content.addAndMakeVisible (masterLabel);
+    master.setComponentID ("masterOutput");
+    master.setSliderStyle (juce::Slider::LinearBar);
+    master.setColour (juce::Slider::trackColourId, juce::Colour (P::global).withAlpha (0.45f));
+    master.setColour (juce::Slider::backgroundColourId, juce::Colour (P::control));
+    master.setTooltip ("What you hear: live sound and loops. Not saved in presets.");
+    masterLabel.setTooltip (master.getTooltip());
+    content.addAndMakeVisible (master);
+    masterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        processor.apvts, dustify::toJuce (damp::paramInfo (MasterOutput).id), master);
+    master.setDoubleClickReturnValue (true, 0.0);
     content.addChildComponent (tuner);
 
     lastTick = juce::Time::getMillisecondCounter();
@@ -107,9 +125,12 @@ void DampAudioProcessorEditor::layoutContent()
     presets.setBounds (top.removeFromRight (420));
     tunerButton.setBounds (top.removeFromLeft (72).reduced (0, 4));
     top.removeFromLeft (16);
+    top.removeFromRight (12);
+    master.setBounds (top.removeFromRight (150).reduced (0, 7));
+    masterLabel.setBounds (top.removeFromRight (52));
     auto meters = top.reduced (0, 2);
-    inputMeter.setBounds (meters.removeFromTop (meters.getHeight() / 2).withTrimmedRight (16));
-    outputMeter.setBounds (meters.withTrimmedRight (16));
+    inputMeter.setBounds (meters.removeFromTop (meters.getHeight() / 2).withTrimmedRight (4));
+    outputMeter.setBounds (meters.withTrimmedRight (4));
     area.removeFromTop (4);
 
     tabs.setBounds (area);

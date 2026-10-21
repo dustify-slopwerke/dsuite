@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Amp.h"
+#include "Metronome.h"
 #include "looper/Looper.h"
 #include "pedals/Board.h"
 
@@ -12,8 +13,10 @@ namespace damp
 {
 
 // Everything between the guitar and the output: input gain and gate, the pedals before the amp,
-// the amp, its cab, the pedals after it, the looper, output volume. Mono or stereo in; the pedals after the
-// amp can make a mono input stereo.
+// the amp, its cab, the pedals after it, the preset's level, the looper, the metronome, the master
+// output. Mono or stereo in; the pedals after the amp can make a mono input stereo. The level is
+// recorded with the loops (a preset change leaves them as they are); the master output scales
+// everything, loops and clicks included.
 class Rig
 {
 public:
@@ -22,12 +25,17 @@ public:
     Rig();
 
     void setPatch (const Patch&);
-    // The host's tempo in BPM, for tempo-synced pedals (before process)
-    void setTempo (double bpm)
+    // Before process: the tempo in effect (BPM) for tempo-synced pedals and the looper's beats,
+    // and whether those follow a playing host's, at position ppq (quarter notes) on the block's
+    // first frame
+    void setTransport (double bpm, bool hostRunning, double ppq)
     {
         pedals.setTempo (bpm);
-        loops.setTempo (bpm);
+        bpmNow = bpm;
+        hostTransport = hostRunning;
+        hostPpq = ppq;
     }
+    void setTempo (double bpm) { setTransport (bpm, false, 0.0); }
     // Any time on the audio thread: a change dips the output for a few milliseconds around it
     void setBoard (const BoardOrder&);
     const BoardOrder& board() const { return pedals.order(); }
@@ -47,7 +55,7 @@ public:
     // in left only, and right receives the stereo output.
     void process (float* left, float* right, int n, bool monoInput);
 
-    // At the end of the chain, before output volume (see Looper for its threads)
+    // After the level, before the metronome and master output (see Looper for its threads)
     Looper& looper() { return loops; }
 
 private:
@@ -56,11 +64,14 @@ private:
     Amp amp;
     Board pedals;
     Looper loops;
+    Metronome metronome;
     std::array<dustify::Convolver, 2> cab;
     bool rightCabIdle = false; // the right cab sat out a mono block: it catches up when next used
     double rate = 48000.0;
     float smoothing = 1.0f;
-    dustify::Smoother outputGain;
+    dustify::Smoother outputGain, masterGain;
+    double bpmNow = 120.0, hostPpq = 0.0;
+    bool hostTransport = false;
 
     // Board order changes: fade out, swap at silence, fade in
     BoardOrder pendingBoard = BoardOrder::defaults();

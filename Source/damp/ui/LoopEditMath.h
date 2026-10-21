@@ -148,6 +148,26 @@ inline double framesPerBeat (double bpm, double rate)
     return bpm > 0.0 ? rate * 60.0 / bpm : rate;
 }
 
+inline double framesPerBar (double bpm, double rate, int beatsPerBar)
+{
+    return framesPerBeat (bpm, rate) * std::max (1, beatsPerBar);
+}
+
+// Bar and beat (both from 1) at `frames` into a loop, e.g. bar 2 beat 3 ("2.3")
+struct BarBeat
+{
+    int64_t bar = 1;
+    int beat = 1;
+    bool operator== (const BarBeat&) const = default;
+};
+
+inline BarBeat barBeat (int64_t frames, double rate, double bpm, int beatsPerBar)
+{
+    const auto beats = (int64_t) std::floor ((double) std::max<int64_t> (0, frames) / framesPerBeat (bpm, rate) + 1.0e-9);
+    const int perBar = std::max (1, beatsPerBar);
+    return { beats / perBar + 1, (int) (beats % perBar) + 1 };
+}
+
 // The grid line (origin + k * step) nearest `frame`
 inline int64_t snapToGrid (int64_t frame, double origin, double step)
 {

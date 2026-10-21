@@ -74,6 +74,13 @@ public:
                 item.section->setActive (paramInfo (pid), active);
     }
 
+    void setTooltip (PID pid, const juce::String& text)
+    {
+        for (auto& row : rows)
+            for (auto& item : row)
+                item.section->setTooltip (paramInfo (pid), text);
+    }
+
 private:
     struct Item
     {

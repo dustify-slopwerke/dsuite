@@ -170,6 +170,7 @@ add_library(damp_dsp STATIC
     Source/damp/dsp/Amp.cpp
     Source/damp/dsp/AmpModels.cpp
     Source/damp/dsp/Cabinet.cpp
+    Source/damp/dsp/Metronome.cpp
     Source/damp/dsp/Params.cpp
     Source/damp/dsp/PitchDetector.cpp
     Source/damp/dsp/Preset.cpp
@@ -229,7 +230,8 @@ if(DUSTIFY_BUILD_TESTS)
         tests/damp/PitchPedalTests.cpp
         tests/damp/EqPedalTests.cpp
         tests/damp/LooperTests.cpp
-        tests/damp/LoopEditMathTests.cpp)
+        tests/damp/LoopEditMathTests.cpp
+        tests/damp/TempoTests.cpp)
     target_include_directories(damp_tests PRIVATE tests)
     target_link_libraries(damp_tests PRIVATE damp_dsp Catch2::Catch2WithMain)
     target_compile_definitions(damp_tests PRIVATE DAMP_PRESET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/presets/damp")

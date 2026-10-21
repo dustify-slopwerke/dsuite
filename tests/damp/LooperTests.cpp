@@ -12,8 +12,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <new>
 #include <numbers>
+#include <utility>
 #include <vector>
 
 // Counts allocations made while `counting` is set on this thread, to show the audio thread
@@ -53,6 +55,11 @@ struct Harness
     Looper looper;
     Patch patch = Patch::defaults();
     int block = 64;
+    // The transport each block gets, and the clicks heard (frame since construction, accent)
+    double bpm = 120.0, ppq = 0.0;
+    bool host = false;
+    int64_t frame = 0;
+    std::vector<std::pair<int64_t, bool>> clicks;
 
     explicit Harness (double poolSeconds = 20.0)
     {
@@ -77,7 +84,12 @@ struct Harness
         {
             const int m = (int) std::min<size_t> ((size_t) block, n - pos);
             looper.setPatch (patch);
+            looper.setTransport (bpm, host, ppq);
             looper.process (l.data() + pos, mono ? nullptr : r.data() + pos, m);
+            for (int c = 0; c < looper.clickCount(); ++c)
+                clicks.emplace_back (frame + looper.clicks()[c].offset, looper.clicks()[c].accent);
+            frame += m;
+            ppq += m * bpm / (60.0 * rate);
         }
         if (outRight != nullptr)
             *outRight = r;
@@ -89,6 +101,8 @@ struct Harness
     Looper::TrackStatus status (int t)
     {
         float dummy = 0.0f;
+        looper.setPatch (patch);
+        looper.setTransport (bpm, host, ppq);
         looper.process (&dummy, &dummy, 0);
         return looper.trackStatus (t);
     }
@@ -986,4 +1000,407 @@ TEST_CASE ("looper: CPU of eight playing tracks", "[.][looper][bench]")
     h.silence (48000 * 20);
     const double seconds = std::chrono::duration<double> (std::chrono::steady_clock::now() - started).count();
     std::printf ("8 tracks at 48 kHz: %.2f%% of real time\n", 100.0 * seconds / 20.0);
+}
+
+// ======================================================================================
+// The beat grid: count-in, quantise, clicks
+
+namespace
+{
+std::vector<float> ramp (size_t n)
+{
+    std::vector<float> x (n);
+    for (size_t i = 0; i < n; ++i)
+        x[i] = (float) (i + 1) * 1.0e-6f;
+    return x;
+}
+
+// The clicks heard from `from` on
+std::vector<std::pair<int64_t, bool>> clicksFrom (const Harness& h, int64_t from)
+{
+    std::vector<std::pair<int64_t, bool>> out;
+    for (const auto& c : h.clicks)
+        if (c.first >= from)
+            out.push_back (c);
+    return out;
+}
+} // namespace
+
+TEST_CASE ("looper: count-in clicks a bar, then records from the bar line exactly", "[looper][tempo]")
+{
+    Harness h;
+    h.patch[PID::MetronomeOn] = 1.0f;
+    h.patch[PID::CountIn] = 1.0f;
+    h.silence (30000 - 13); // the free clock clicks at 0 and 24000; F is off its grid
+    const int64_t f = h.frame;
+
+    h.press (Action::Rec, 0);
+    CHECK (h.status (0).armed);
+    CHECK (h.status (0).state == State::Empty);
+    CHECK (h.looper.status().countInBeatsLeft == 4);
+    CHECK (h.looper.status().armedTrack == 0);
+    const auto in = ramp (150000);
+    h.run (in, 50000);
+    CHECK (h.looper.status().countInBeatsLeft == 2);
+    CHECK (h.status (0).state == State::Empty);
+    h.run (std::vector<float> (in.begin() + 50000, in.end()), 100000);
+    CHECK (! h.status (0).armed);
+    CHECK (h.status (0).state == State::Recording);
+    h.press (Action::Rec, 0);
+    CHECK (h.status (0).state == State::Playing);
+    CHECK (h.status (0).length == 150000 - 96000);
+
+    // Four beats (24000 frames apart at 120 BPM), the first accented; bar 1 on the first recorded frame
+    const auto heard = clicksFrom (h, f);
+    REQUIRE (heard.size() >= 5);
+    for (int k = 0; k < 5; ++k)
+    {
+        CHECK (heard[(size_t) k].first == f + k * 24000);
+        CHECK (heard[(size_t) k].second == (k % 4 == 0));
+    }
+    std::vector<float> l, r;
+    REQUIRE (h.looper.copyTrackAudio (0, l, r));
+    CHECK (l[0] == in[96000]);
+    CHECK (l[1] == in[96001]);
+}
+
+TEST_CASE ("looper: the count-in clicks with the metronome off; only the count-in", "[looper][tempo]")
+{
+    for (const bool recOnly : { false, true })
+    {
+        Harness h;
+        h.patch[PID::MetronomeOn] = 0.0f;
+        h.patch[PID::MetronomeRecOnly] = recOnly ? 1.0f : 0.0f;
+        h.patch[PID::CountIn] = 1.0f;
+        h.silence (30000);
+        CHECK (h.clicks.empty());
+        const int64_t f = h.frame;
+        h.press (Action::Rec, 0);
+        h.silence (96000 + 60000); // the count-in bar, then recording
+        CHECK (h.status (0).state == State::Recording);
+        const auto heard = clicksFrom (h, f);
+        REQUIRE (heard.size() == 4); // bar 1 of the recording and after: silent
+        for (int k = 0; k < 4; ++k)
+        {
+            CHECK (heard[(size_t) k].first == f + k * 24000);
+            CHECK (heard[(size_t) k].second == (k == 0));
+        }
+        h.press (Action::Rec, 0);
+        h.silence (100000);
+        CHECK (clicksFrom (h, f).size() == 4);
+    }
+}
+
+TEST_CASE ("looper: Rec, Stop, Play/Stop, Clear, Undo or switching off cancel a count-in; Rec elsewhere moves it", "[looper][tempo]")
+{
+    Harness h;
+    h.patch[PID::CountIn] = 1.0f;
+    auto cancelled = [&] (Action a, int track)
+    {
+        h.press (Action::Rec, 0);
+        h.silence (10000);
+        REQUIRE (h.status (0).armed);
+        h.press (a, track);
+        CHECK (! h.status (0).armed);
+        h.silence (100000);
+        CHECK (h.status (0).state == State::Empty);
+        CHECK (h.looper.status().armedTrack == -1);
+    };
+    cancelled (Action::Rec, 0);
+    cancelled (Action::Stop, 0);
+    cancelled (Action::PlayStop, -1);
+    cancelled (Action::Clear, 0);
+    cancelled (Action::Undo, 0);
+
+    h.press (Action::Rec, 0);
+    h.silence (10000);
+    h.patch[PID::LooperOn] = 0.0f;
+    CHECK (! h.status (0).armed);
+    h.patch[PID::LooperOn] = 1.0f;
+    h.silence (100000);
+    CHECK (h.status (0).state == State::Empty);
+
+    // Rec on another track: it records there, on the same bar line
+    h.press (Action::Rec, 0);
+    h.silence (20000);
+    h.press (Action::Rec, 1);
+    CHECK (! h.status (0).armed);
+    CHECK (h.status (1).armed);
+    h.silence (76000);
+    CHECK (h.status (1).state == State::Empty);
+    h.silence (64);
+    CHECK (h.status (1).state == State::Recording);
+    CHECK (h.status (1).length == 64);
+    CHECK (h.status (0).state == State::Empty);
+}
+
+TEST_CASE ("looper: a quantised master closes on whole bars", "[looper][tempo]")
+{
+    // 100 BPM, 4/4: 115200 frames a bar
+    constexpr int64_t bar = 115200;
+    auto harness = []
+    {
+        auto h = std::make_unique<Harness>();
+        h->bpm = 100.0;
+        h->patch[PID::LooperQuantise] = 1.0f;
+        return h;
+    };
+    auto record = [] (Harness& h, int64_t frames)
+    {
+        h.press (Action::Rec, 0);
+        h.run (noise ((size_t) frames, 70), (size_t) frames);
+        CHECK (h.status (0).state == State::Recording); // no clicks to wait for: at once
+        h.press (Action::Rec, 0);
+    };
+
+    SECTION ("1.3 bars: on to bar 2")
+    {
+        auto h = harness();
+        record (*h, bar * 13 / 10);
+        CHECK (h->status (0).ending);
+        h->silence ((size_t) (2 * bar - bar * 13 / 10 - 1));
+        CHECK (h->status (0).state == State::Recording);
+        h->silence (1);
+        CHECK (h->status (0).state == State::Playing);
+        CHECK (h->status (0).length == 2 * bar);
+        CHECK (h->looper.status().masterLength == 2 * bar);
+        CHECK (h->looper.status().masterBars == 2);
+    }
+    SECTION ("30 ms past bar 1: closes there at once")
+    {
+        auto h = harness();
+        record (*h, bar + 1440);
+        CHECK (h->status (0).state == State::Playing);
+        CHECK (h->status (0).length == bar);
+        CHECK (h->looper.status().masterLength == bar);
+    }
+    SECTION ("under a bar: on to bar 1")
+    {
+        auto h = harness();
+        record (*h, bar / 5);
+        CHECK (h->status (0).ending);
+        h->silence ((size_t) (bar - bar / 5));
+        CHECK (h->status (0).state == State::Playing);
+        CHECK (h->looper.status().masterLength == bar);
+    }
+    SECTION ("Stop while it waits: the end rounds to whole bars, trimmed or padded")
+    {
+        auto h = harness();
+        record (*h, bar * 13 / 10);
+        h->silence ((size_t) (bar / 10)); // 1.4 bars
+        h->press (Action::Stop, 0);
+        auto s = h->status (0);
+        CHECK (s.state == State::Stopped);
+        CHECK (s.length == bar * 14 / 10);
+        CHECK (s.end == bar);
+        CHECK (h->looper.status().masterLength == bar);
+
+        auto g = harness();
+        record (*g, bar * 17 / 10);
+        g->press (Action::PlayStop, -1);
+        s = g->status (0);
+        CHECK (s.length == bar * 17 / 10);
+        CHECK (s.end == 2 * bar);
+        CHECK (g->looper.status().masterLength == 2 * bar);
+    }
+    SECTION ("quantise off: the master closes where it is")
+    {
+        auto h = harness();
+        h->patch[PID::LooperQuantise] = 0.0f;
+        record (*h, bar * 13 / 10);
+        CHECK (h->status (0).state == State::Playing);
+        CHECK (h->status (0).length == bar * 13 / 10);
+    }
+}
+
+TEST_CASE ("looper: with quantise and clicks, the first recording waits for the bar line", "[looper][tempo]")
+{
+    Harness h;
+    h.patch[PID::LooperQuantise] = 1.0f;
+    h.patch[PID::MetronomeOn] = 1.0f; // the free clock: bar lines at 0, 96000, ...
+    h.silence (30000);
+    h.press (Action::Rec, 0);
+    CHECK (h.status (0).armed);
+    CHECK (h.looper.status().countInBeatsLeft == 0);
+    h.silence (96000 - 30000);
+    CHECK (h.status (0).state == State::Empty);
+    h.silence (64);
+    CHECK (h.status (0).state == State::Recording);
+    CHECK (h.status (0).length == 64);
+    h.press (Action::Clear, 0);
+    h.silence (480);
+    CHECK (h.status (0).state == State::Empty);
+
+    // Within 50 ms after a bar line: at once, bar 1 there
+    Harness g;
+    g.patch[PID::LooperQuantise] = 1.0f;
+    g.patch[PID::MetronomeOn] = 1.0f;
+    g.silence (96000 + 1000);
+    g.press (Action::Rec, 0);
+    CHECK (! g.status (0).armed);
+    CHECK (g.status (0).state == State::Recording);
+    const int64_t f = g.frame;
+    g.silence (100000);
+    const auto heard = clicksFrom (g, f - 2400);
+    REQUIRE (heard.size() >= 2);
+    CHECK (heard[0].first == 96000); // the bar line's click, not again at the press
+    CHECK (heard[1].first == f + 24000);
+}
+
+TEST_CASE ("looper: clicks lock to the master loop; Play starts on an accented bar 1", "[looper][tempo]")
+{
+    Harness h;
+    h.patch[PID::MetronomeOn] = 1.0f;
+    h.silence (5000);
+    // 200000 frames at 120 BPM: two bars of 4/4 (8 beats of 25000)
+    constexpr int64_t m = 200000;
+    const int64_t f = h.frame;
+    recordTrack (h, 0, noise ((size_t) m, 80));
+    CHECK (h.status (0).state == State::Playing);
+    CHECK (h.looper.status().masterBars == 2);
+    h.silence ((size_t) (2 * m + 12500));
+    for (const auto& [frame, accent] : clicksFrom (h, f + m))
+    {
+        const int64_t phase = (frame - f) % m;
+        const auto k = (int64_t) std::llround ((double) phase / 25000.0);
+        CHECK (phase == std::llround ((double) k * m / 8.0));
+        CHECK (accent == (k % 4 == 0));
+    }
+    CHECK (clicksFrom (h, f + m).size() == 16 + 1);
+
+    // Stopped mid-beat, the free clock carries on from there; Play restarts on bar 1
+    h.press (Action::PlayStop, -1);
+    const int64_t s = h.frame;
+    h.silence (72000);
+    const auto free = clicksFrom (h, s);
+    REQUIRE (free.size() == 3);
+    CHECK (std::abs (free[0].first - (s + 12000)) < 100); // (the tracks' 3 ms fade out still runs the master's)
+    CHECK (std::abs (free[2].first - free[1].first - 24000) <= 1);
+    h.press (Action::PlayStop, -1);
+    const int64_t p = h.frame;
+    h.silence (30000);
+    const auto played = clicksFrom (h, p);
+    REQUIRE (played.size() >= 2);
+    CHECK (played[0].first == p);
+    CHECK (played[0].second);
+    CHECK (played[1].first == p + 25000);
+    CHECK (! played[1].second);
+    CHECK (h.looper.status().beat == 1);
+}
+
+TEST_CASE ("looper: following a playing host, clicks fall on whole quarter notes", "[looper][tempo]")
+{
+    Harness h;
+    h.block = 100;
+    h.host = true;
+    h.ppq = 3.5;
+    h.patch[PID::MetronomeOn] = 1.0f;
+    h.silence (100000);
+    CHECK (h.looper.status().hostGrid);
+    const auto heard = clicksFrom (h, 0);
+    REQUIRE (heard.size() == 4);
+    for (int k = 0; k < 4; ++k)
+    {
+        CHECK (heard[(size_t) k].first == 12000 + 24000 * k); // ppq 4, 5, 6, 7
+        CHECK (heard[(size_t) k].second == (k == 0));
+    }
+
+    // Count-in: from the host's next bar line (ppq 8), recording on the one after (ppq 12)
+    h.patch[PID::CountIn] = 1.0f;
+    const int64_t f = h.frame; // ppq 7.67
+    h.press (Action::Rec, 0);
+    CHECK (h.status (0).armed);
+    CHECK (h.looper.status().countInBeatsLeft == 5);
+    const auto toRecord = (int64_t) std::llround ((12.0 - h.ppq) * 24000.0);
+    h.silence ((size_t) (toRecord - 1));
+    CHECK (h.status (0).state == State::Empty);
+    h.silence (100);
+    CHECK (h.status (0).state == State::Recording);
+    for (const auto& [frame, accent] : clicksFrom (h, f))
+    {
+        const double beat = 3.5 + (double) frame / 24000.0;
+        CHECK (std::abs (beat - std::round (beat)) < 1.0e-4);
+        CHECK (accent == ((int64_t) std::llround (beat) % 4 == 0));
+    }
+}
+
+TEST_CASE ("looper: the metronome runs without a pool; rec only gates it", "[looper][tempo]")
+{
+    Looper looper;
+    looper.setIdleTimeout (0.0);
+    looper.prepare (rate);
+    Patch patch = Patch::defaults();
+    patch[PID::MetronomeOn] = 1.0f;
+    patch[PID::BeatsPerBar] = (float) BeatsPerBar::Three;
+    std::vector<float> l (512), r (512);
+    std::vector<int64_t> heard;
+    for (int64_t at = 0; at < 100000; at += 512)
+    {
+        looper.setPatch (patch);
+        looper.process (l.data(), r.data(), 512);
+        for (int c = 0; c < looper.clickCount(); ++c)
+        {
+            heard.push_back (at + looper.clicks()[c].offset);
+            CHECK (looper.clicks()[c].accent == (heard.size() % 3 == 1));
+        }
+    }
+    CHECK (heard == std::vector<int64_t> { 0, 24000, 48000, 72000, 96000 });
+    CHECK (looper.status().beatsPerBar == 3);
+
+    Harness h;
+    h.patch[PID::MetronomeOn] = 1.0f;
+    h.patch[PID::MetronomeRecOnly] = 1.0f;
+    h.silence (50000);
+    CHECK (h.clicks.empty());
+    h.press (Action::Rec, 0);
+    h.silence (50000);
+    CHECK (h.clicks.size() == 2);
+    h.press (Action::Rec, 0);
+    h.silence (50000);
+    CHECK (h.clicks.size() == 2);
+}
+
+TEST_CASE ("looper: the beat grid doesn't allocate", "[looper][tempo]")
+{
+    Harness h;
+    h.patch[PID::MetronomeOn] = 1.0f;
+    h.patch[PID::CountIn] = 1.0f;
+    h.patch[PID::LooperQuantise] = 1.0f;
+    h.bpm = 137.0;
+    std::vector<float> l (48000), r (48000);
+    auto audio = [&] (int frames)
+    {
+        counting = true;
+        for (int pos = 0; pos + 64 <= frames; pos += 64)
+        {
+            h.looper.setPatch (h.patch);
+            h.looper.setTransport (h.bpm, h.host, h.ppq);
+            h.looper.process (l.data() + pos % 40000, r.data() + pos % 40000, 64);
+            h.ppq += 64 * h.bpm / (60.0 * rate);
+        }
+        counting = false;
+    };
+    allocations = 0;
+    h.press (Action::Rec, 0); // count-in, then a quantised master
+    audio (100000);
+    h.press (Action::Rec, 0);
+    audio (150000);
+    h.press (Action::Rec, 1);
+    audio (60000);
+    h.press (Action::Rec, 1);
+    h.press (Action::PlayStop, -1);
+    audio (20000);
+    h.press (Action::PlayStop, -1);
+    h.host = true;
+    audio (20000);
+    h.press (Action::ClearAll, -1);
+    h.patch[PID::CountIn] = 0.0f;
+    audio (20000);
+    h.press (Action::Rec, 2); // waits for the host's bar line
+    audio (90000);
+    h.press (Action::Stop, 2);
+    audio (5000);
+    CHECK (allocations == 0);
+    CHECK (h.status (0).state == State::Empty);
+    CHECK (h.status (2).state != State::Empty);
 }

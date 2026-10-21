@@ -82,6 +82,7 @@ private:
     int64_t snapped (bool start, int64_t frame, const damp::loopedit::Edits&) const;
     int64_t toZeroCrossing (int64_t frame);
     double beatFrames() const;
+    int beatsPerBar() const;
 
     damp::Looper& looper;
     std::unique_ptr<Strip> strip;

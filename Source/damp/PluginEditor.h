@@ -55,6 +55,9 @@ private:
     juce::Label impulseName;
     juce::TextButton tunerButton { "Tuner" };
     LevelMeter inputMeter { "IN" }, outputMeter { "OUT" };
+    juce::Label masterLabel;
+    juce::Slider master;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAttachment;
     TunerView tuner;
     juce::uint32 lastTick = 0;
     std::unique_ptr<juce::FileChooser> chooser;

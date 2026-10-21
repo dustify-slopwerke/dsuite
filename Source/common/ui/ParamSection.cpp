@@ -71,6 +71,13 @@ public:
 
     const dustify::ParamSpec* getSpec() const { return spec; }
 
+    void setTooltip (const juce::String& text)
+    {
+        slider.setTooltip (text);
+        combo.setTooltip (text);
+        toggle.setTooltip (text);
+    }
+
     void setActive (bool active)
     {
         const float alpha = active ? 1.0f : 0.35f;
@@ -133,6 +140,13 @@ void ParamSection::setActive (const dustify::ParamSpec& info, bool active)
     for (auto& c : controls)
         if (c->getSpec() == &info)
             c->setActive (active);
+}
+
+void ParamSection::setTooltip (const dustify::ParamSpec& info, const juce::String& text)
+{
+    for (auto& c : controls)
+        if (c->getSpec() == &info)
+            c->setTooltip (text);
 }
 
 int ParamSection::preferredWidth() const

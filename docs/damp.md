@@ -12,18 +12,22 @@ and so on) can spread the signal to stereo. A stereo input runs two amps keyed b
 
 ```
 input -> Input Gain -> Noise Gate -> [pedals before the amp] -> amp -> cabinet
-      -> [pedals after the amp] -> looper -> Output Volume -> output
+      -> [pedals after the amp] -> Level -> looper -> click -> Master -> output
 ```
 
 - Pedals before the amp and the amp itself run oversampled (see [Quality and latency](#quality-and-latency)).
-- Pedals after the amp, the looper and the output volume run at the host rate.
-- The looper is at the very end of the chain, so recorded loops keep their effects while you
-  change sound over them. Output Volume affects loops and live signal alike.
+- Pedals after the amp, the looper, the click and Master run at the host rate.
+- The looper is at the end of the chain, so recorded loops keep their effects while you
+  change sound over them.
+- **Level** (Amp tab, Output section) is the preset's own level: saved in presets, and loops
+  record at it, so changing preset changes the live sound's level but not the loops'.
+- **Master** (header) is the overall volume of everything heard, live sound, loops and click,
+  -48 to +18 dB (0). It is saved with the session, not in presets. Double-click resets it.
 - Host bypass passes the dry input, delayed by the plugin's latency so switching is seamless.
 
 ## Editor
 
-- Header: title, **Tuner** button, input and output meters, preset bar.
+- Header: title, **Tuner** button, input and output meters, **Master**, preset bar.
 - Tabs: **Amp**, **Pedals**, **Looper**.
 - The window is resizable with a fixed aspect ratio (60% to 200%); the size is saved with the session.
 - Controls that do nothing in the current setup are dimmed (gate controls with the gate off,
@@ -44,7 +48,7 @@ input -> Input Gain -> Noise Gate -> [pedals before the amp] -> amp -> cabinet
 | Threshold | -90 to -20 dBFS (-65) | Opens above this level |
 | Release | 5 to 500 ms (80) | Fade to -60 dB once closed |
 | Quality | 2x, 4x, 8x (4x) | Oversampling factor |
-| Volume | -48 to +12 dB (0) | Output volume; -48 dB is silence |
+| Level | -48 to +12 dB (0) | The preset's level (before the looper); -48 dB is silence |
 
 The gate is a peak detector with 6 dB of hysteresis and a 40 ms hold, so a decaying note does
 not chatter. It opens in well under a millisecond. It sits before every pedal, including a
@@ -233,12 +237,32 @@ records the live signal (amp, cab and all pedals) without the loops already play
 - Editing the master's length changes the grid; every sync track follows. Clearing the master
   keeps its length for the other tracks; clearing the last track resets it.
 
-### Tempo
+### Tempo and metronome
 
-- The looper does not follow the host transport; Rec and Play start when pressed.
-- The host tempo (120 BPM when the host provides none) is used for display and editing only:
-  the header shows tempo, master loop length in seconds and beats, and the playing position as
-  bar.beat (4/4). Snapping and beat nudges in the editor use it too.
+The row under the transport:
+
+| Control | Notes |
+|---|---|
+| Tempo | 40 to 240 BPM (120). Drag, or click to type. Shows the host's tempo, greyed, while Follow host uses it. |
+| Tap | Tap on the beat: the mean of the last five intervals; a pause over 2 s starts again. Turns Follow host off. |
+| Follow host | (on) Use the host's tempo when it provides one, and its beats while it plays. |
+| From loop | Set the tempo from the master loop: the tempo (70-180 BPM, nearest the current one) that makes it whole bars. |
+| Quantise | (off) The first loop closes on whole bars of the tempo: Rec waits for the next bar line (or closes at once within 50 ms after one); Stop rounds to the nearest whole bar (trim or pad). With the click audible and no count-in, recording also starts on the next bar line. |
+| Click | (off) Metronome on, with its level (-48 to 0 dB, -12; -48 is silent). Never recorded; Master affects it. |
+| Accent | (on) The first beat of each bar higher and louder. |
+| Beats | Beats per bar, 2 to 7 (4). Used by the click, bars, bar snapping and the info. |
+| Count-in | (off) The first recording counts in one bar (always clicked, even with Click off), then starts exactly on the bar line. |
+| Rec only | (off) Click only while recording or overdubbing. |
+
+- Dots show the beat (the first of the bar in colour); a big number counts down the count-in.
+  While a track waits to record, Rec blinks and its strip reads "COUNT-IN" or "WAITING FOR BAR".
+  Rec, Stop, Play/Stop, Clear or Undo cancel the wait.
+- Once a master loop runs, the beats are locked to it (Play starts on bar 1). The info reads
+  e.g. "Loop 8.00 s = 4 bars   Bar 2.3", adding the loop's own tempo when it isn't whole bars of
+  the tempo to within 0.5%.
+- Rec and Play don't follow the host transport; they start when pressed (or on the count-in /
+  bar line). Tempo, Follow host, Quantise and the click settings are saved with the session, not
+  in presets.
 
 ### Waveform editor
 
@@ -254,7 +278,7 @@ a track has stopped recording.
 - **Nudges:** **Start** / **End** pick the handle (clicking a handle picks it too); buttons move
   it by a beat, 10 ms or 1 ms either way.
 - **Snap:** off, zero (nearest zero crossing within 5 ms when the handle is released), beat or
-  bar (host tempo; the start snaps to beats counted from the recording's first frame, the end to
+  bar (the tempo and beats per bar; the start snaps to beats counted from the recording's first frame, the end to
   whole beats or bars after the start).
 - **Xfade:** seam crossfade from the loop's end into its start, 0 to 50 ms (default 5). The
   recording's own edges fade over the same length.
@@ -287,6 +311,8 @@ The **WAV** menu on each row:
 - After loading, tracks come back stopped. If the host sample rate changes, loops are resampled
   (undo history is dropped).
 - Presets never save or load looper settings or audio.
+- Projects saved before Master existed load with Master at 0 dB and their old output volume
+  added to every track's Level, so loops keep their balance with the live sound.
 
 ### Host automation
 
@@ -349,9 +375,9 @@ delay_sync = 1/8.
   (also `true`/`false`, `1`/`0`); choices take their name as shown in the editor (or index).
 - Any parameter not listed takes its default value, so a preset only needs what differs.
 - Unknown ids and bad values are skipped.
-- Saved presets list every parameter except the looper's.
+- Saved presets list every parameter except the looper's, tempo, click and Master.
 
 ## Saved with the session
 
-Parameters, pedal order, the loaded IR, tuner mute and reference pitch, window size, and the
+Parameters (including Master, tempo and click), pedal order, the loaded IR, tuner mute and reference pitch, window size, and the
 looper's audio and edits.

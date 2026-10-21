@@ -2,11 +2,13 @@
 
 #include "LoopPool.h"
 #include "LoopSession.h"
+#include "TempoGrid.h"
 
 #include "../Params.h"
 
 #include <array>
 #include <atomic>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -14,8 +16,9 @@
 namespace damp
 {
 
-// An 8-track looper at the very end of the chain (after every pedal, before output volume), so
-// loops keep their effects while the player changes sound over them. Every track plays at once.
+// An 8-track looper at the end of the chain (after every pedal and the preset's level, before the
+// metronome and the master output), so loops keep their effects and level while the player changes
+// sound over them. Every track plays at once.
 //
 // Timing. The first track recorded is the master: its loop length (end - start) is the master
 // length M. Every other track is either
@@ -35,8 +38,28 @@ namespace damp
 // nothing, and anything else that ends the recording (Stop, Play/Stop, Rec on another track,
 // Clear, Undo, switching the looper off, a full pool) cancels the wait and acts at once, as
 // before: the recording closes where it is (its period rounding to the nearest multiple of M)
-// or, for Clear and Undo, goes. The master itself and free tracks close at once: the engine has
-// no grid of its own (the host tempo is only the UI's snap), M is the grid.
+// or, for Clear and Undo, goes. Free tracks close at once; so does the master, unless quantised.
+//
+// The beat grid. The looper keeps the metronome's beats and hands them out as clicks with each
+// block (clicks(): it doesn't sound them). In order of precedence they follow
+//   1. the master loop, while it runs: M holds bars = round (M / bar at the tempo) bars, each beat
+//      at a fixed frame of it (round (k * M / beats)), so the clicks always line up with the loops
+//      and Play starts on an accented bar 1;
+//   2. while the first loop is armed or recording: a grid at the tempo of the press, from the
+//      press (or the bar line it waited for);
+//   3. the host's beats (ppq) when following a playing host;
+//   4. a free-running clock at the tempo, restarting on a bar when the metronome is switched on.
+// Moving from one to the next carries on from the beat it had reached, with no jump.
+// The first recording (no other track has audio) may wait for the grid: with count-in on, it
+// counts one bar in (with a host, from its next bar line) and starts sample-accurately on the bar
+// line after (the count-in always clicks, with the metronome off or rec only); with quantise on and the clicks audible, it waits for the next bar line, unless
+// pressed within closeToleranceMs after one. Meanwhile trackStatus().armed is set; Rec on the
+// track, Play/Stop, Stop, Clear or Undo on it, or switching the looper off cancel it, and Rec on
+// another track moves it there. Sync and free tracks over a loop and overdubs never wait.
+// A quantised master (quantise on when Rec started it) closes on whole bars at the tempo it
+// started at: Rec waits for the next bar line (or closes at once on one passed within
+// closeToleranceMs, a quarter of a bar at most), and anything else that ends it rounds its end to
+// the nearest whole number of bars (at least one), trimming or padding with silence.
 //
 // Edits are non-destructive and per track, in frames relative to the recording: start may be
 // negative and end past the recording (silence, costing no memory). A seam crossfade (0-50 ms,
@@ -81,6 +104,8 @@ public:
     static constexpr float maxCrossfadeMs = 50.0f;
     static constexpr int64_t minLoop = 16; // the shortest loop edits may leave (frames)
     static constexpr double closeToleranceMs = 50.0; // a sync recording closed this soon after a bar closes at it
+    static constexpr int maxClicks = 8; // per block
+    using Click = tempo::Click;
 
     enum class State : int { Empty, Recording, Playing, Overdubbing, Stopped };
     enum class Action : int
@@ -107,6 +132,7 @@ public:
         bool master = false;
         bool canOverdub = false;    // not reversed or at half speed
         bool ending = false;        // a sync recording asked to close, recording on to its next bar
+        bool armed = false;         // waiting to record: counting in, or for the next bar line
         int64_t front = 0;          // frames overdubs have added before the recording (see above)
         int undoLevels = 0, redoLevels = 0;
     };
@@ -121,6 +147,15 @@ public:
         bool running = false;
         double poolUsedSeconds = 0.0, poolTotalSeconds = 0.0;
         int poolFullCount = 0; // goes up each time a recording stopped because the pool was full
+
+        // The beat grid (tempo: the tempo in effect, the host's when following it)
+        int beatsPerBar = 4;
+        int beat = 0;             // in the bar, from 0 (an accented beat)
+        double beatPhase = 0.0;   // through that beat, 0..1
+        int masterBars = 0;       // bars in the master loop at the tempo (0: no master)
+        bool hostGrid = false;    // the beats follow the host's
+        int armedTrack = -1;      // waiting to record (see TrackStatus::armed)
+        int countInBeatsLeft = 0; // while counting in, including the one sounding
     };
 
     Looper();
@@ -130,9 +165,15 @@ public:
     void prepare (double sampleRate);
     // looper_* and trackN_* parameters; the transport buttons act on off -> on
     void setPatch (const Patch&);
-    void setTempo (double bpm) { tempo.store (bpm, std::memory_order_relaxed); }
+    // Before process: the tempo in effect (BPM), and whether the beats follow a playing host's,
+    // whose position (in quarter notes) at the block's first frame is ppq
+    void setTransport (double bpm, bool hostRunning, double ppq);
+    void setTempo (double bpm) { setTransport (bpm, false, 0.0); }
     // In place: the loops are added to the signal, which is recorded. right == nullptr: mono.
     void process (float* left, float* right, int n);
+    // The metronome's clicks in the last process() block, in order (none when it's off or gated)
+    int clickCount() const { return numClicks; }
+    const Click* clicks() const { return clickList.data(); }
 
     // ---- Any thread ----
     // The next setPatch adopts the transport buttons' values without acting (after a state load)
@@ -223,6 +264,7 @@ private:
         Op pending = Op::None;
         bool resume = false;
         bool ending = false; // recording on to the next bar, then closing
+        bool quantised = false; // the first recording, closing on whole bars (quantisedBar)
     };
 
     struct Command
@@ -264,10 +306,14 @@ private:
     void apply (const Command&);
     void doAction (Action, int track);
     void rec (int t);
-    void startRecording (int t);
+    bool isFirstRecording (int t) const; // no other track has audio: it will set the master length
+    void beginRecording (int t);         // the first recording: may arm (count-in, quantise) first
+    void startRecording (int t, bool quantised = false);
+    void cancelArm();
     void closeRecording (int t);
     void requestClose (int t); // closes a sync recording at its next bar
-    int64_t closeBar (int t) const; // the grid a recording closes on (0: none, it closes at once)
+    // The length (>= length) a recording asked to close closes at (0: none, it closes at once)
+    int64_t closeTarget (int t, int64_t length) const;
     void truncateRecording (int t, int64_t length);
     void punchIn (int t);
     void punchOut (int t, bool now);
@@ -304,6 +350,13 @@ private:
     void markDirty (int t, int64_t i);
     void flushDirty (int t);
     void publishStatus();
+
+    // The beat grid
+    enum class Grid : int { Master, Armed, Host, Free };
+    Grid grid() const;
+    int masterBeats() const; // beats in the master loop (a whole number of bars)
+    void clickGrid (int at, int n); // the clicks in the next n frames, `at` into the block
+    void click (int at, int64_t frame, bool accent, bool audible);
     looper::LoopStore* usable() const; // the store, if it matches the rate
 
     static void readRecorded (const looper::LoopPool&, const looper::Take&, int64_t i, int fade, float& l, float& r);
@@ -336,6 +389,31 @@ private:
     std::array<Dirty, numTracks> dirty;
     std::array<bool, numTracks> listChanged {};
 
+    // The beat grid (see above). `elapsed` counts every frame processed; beatPos is the grid's beat
+    // at the next one (whole: a beat, accented on multiples of the beats per bar).
+    struct Transport
+    {
+        double bpm = 120.0, ppq = 0.0;
+        bool host = false;
+    } transport;
+    int64_t elapsed = 0;
+    double beatPos = 0.0;
+    bool metronomeWasOn = false;
+    bool frozen = false;              // the first recording's grid (Grid::Armed) is in use
+    double frozenBpm = 120.0, quantisedBar = 0.0;
+    int frozenBeatsPerBar = 4;
+    int64_t gridOrigin = 0;           // that grid's bar 1 (frames)
+    int64_t lastClick = std::numeric_limits<int64_t>::min() / 2;
+    bool lastAccent = false;
+    struct Arm
+    {
+        int track = -1;
+        int64_t at = 0; // the frame it starts recording on
+        bool countIn = false, quantised = false;
+    } arm;
+    std::array<Click, maxClicks> clickList {};
+    int numClicks = 0;
+
     // Set by setPatch (audio thread), taken by the owner
     struct Controls
     {
@@ -343,6 +421,8 @@ private:
         int selected = 0;
         std::array<float, numTracks> level {};
         std::array<bool, numTracks> mute {}, reverse {}, half {}, sync {};
+        bool quantise = false, metronome = false, recOnly = false, countIn = false;
+        int beatsPerBar = 4;
     } controls;
     std::array<bool, 5> buttons {}; // rec, play/stop, undo, redo, clear: last values
     bool buttonsKnown = false;
@@ -367,6 +447,9 @@ private:
     };
     std::array<Published, numTracks> published;
     std::atomic<int> pubMaster { -1 }, pubSelected { 0 }, poolFull { 0 };
+    std::atomic<int> pubBeatsPerBar { 4 }, pubBeat { 0 }, pubMasterBars { 0 }, pubArmed { -1 }, pubCountIn { 0 };
+    std::atomic<double> pubBeatPhase { 0.0 };
+    std::atomic<bool> pubHostGrid { false };
     std::atomic<int64_t> pubMasterLength { 0 };
     std::atomic<bool> pubOn { false }, pubRunning { false };
 

@@ -35,6 +35,9 @@ public:
     // Dims (but doesn't disable) a control whose parameter currently has no effect
     void setActive (const dustify::ParamSpec&, bool active);
 
+    // Replaces a control's tooltip (its parameter's name by default)
+    void setTooltip (const dustify::ParamSpec&, const juce::String& text);
+
 private:
     class Control;
 

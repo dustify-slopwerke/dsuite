@@ -68,6 +68,11 @@ enum class PID : int
     Track7Level, Track7Mute, Track7Reverse, Track7Half, Track7Sync,
     Track8Level, Track8Mute, Track8Reverse, Track8Half, Track8Sync,
 
+    // Session only too: the output after the looper and metronome, the tempo and the metronome
+    MasterOutput,
+    Tempo, TempoFollowHost, LooperQuantise,
+    MetronomeOn, MetronomeLevel, MetronomeAccent, BeatsPerBar, CountIn, MetronomeRecOnly,
+
     Count
 };
 
@@ -92,6 +97,8 @@ enum class DelayMode : int { Digital, Analog, Tape };
 enum class DelaySync : int { Off, Half, DottedQuarter, Quarter, QuarterTriplet, DottedEighth, Eighth, EighthTriplet, Sixteenth };
 enum class ReverbMode : int { Spring, Plate, Hall };
 enum class PitchMode : int { Steps, Free };
+enum class BeatsPerBar : int { Two, Three, Four, Five, Six, Seven }; // index + 2 beats
+constexpr int beatsPerBar (int index) { return index + 2; }
 
 // Looper tracks: each has the same parameters, in this order from Track1Level on
 constexpr int looperTracks = 8;
@@ -102,7 +109,8 @@ constexpr PID trackParam (int track, TrackParam p)
 }
 static_assert (trackParam (looperTracks - 1, TrackParam::Sync) == PID::Track8Sync);
 
-// Presets hold the sound, not the looper: its parameters live only in the session
+// Presets hold the sound, not the looper, tempo, metronome or master output: those live only in
+// the session
 constexpr bool inPresets (PID p) { return (int) p < (int) PID::LooperOn; }
 
 } // namespace damp

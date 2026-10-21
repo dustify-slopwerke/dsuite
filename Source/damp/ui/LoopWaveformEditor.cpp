@@ -204,18 +204,19 @@ public:
         if (hasAudio && beat / v.framesPerPixel >= 6.0)
         {
             const auto first = (int64_t) std::floor (v.first / beat), last = (int64_t) std::ceil (v.last() / beat);
-            const bool labelBars = beat * 4.0 / v.framesPerPixel >= 28.0;
+            const int bpb = editor.beatsPerBar();
+            const bool labelBars = beat * bpb / v.framesPerPixel >= 28.0;
             g.setFont (juce::FontOptions (10.5f));
             for (auto k = first; k <= last; ++k)
             {
                 const float x = (float) v.xAt ((double) k * beat);
-                const bool bar = k % 4 == 0;
+                const bool bar = k % bpb == 0;
                 g.setColour (c (P::panelEdge).withAlpha (bar ? 1.0f : 0.5f));
                 g.fillRect (x, (float) wave.getY(), 1.0f, (float) wave.getHeight());
                 if (bar && labelBars)
                 {
                     g.setColour (c (P::dimText));
-                    const auto barNumber = k / 4 + 1; // bar 1 starts at the first frame
+                    const auto barNumber = k / bpb + 1; // bar 1 starts at the first frame
                     g.drawText (juce::String (barNumber), juce::Rectangle<float> (x + 2.0f, 0.0f, 30.0f, (float) rulerHeight),
                                 juce::Justification::centredLeft);
                 }
@@ -401,7 +402,7 @@ LoopWaveformEditor::LoopWaveformEditor (damp::Looper& l) : looper (l), strip (st
     snapBox.addItemList ({ "Snap: off", "Snap: zero", "Snap: beat", "Snap: bar" }, 1);
     snapBox.setSelectedItemIndex (0, juce::dontSendNotification);
     snapBox.setTooltip ("Where a dragged handle lands: anywhere, on the nearest zero crossing (when it's let go), or on the "
-                        "host tempo's beats or bars (the start from the first recorded frame, the end in whole beats or bars "
+                        "tempo's beats or bars (the start from the first recorded frame, the end in whole beats or bars "
                         "after the start)");
     addAndMakeVisible (snapBox);
 
@@ -419,12 +420,12 @@ LoopWaveformEditor::LoopWaveformEditor (damp::Looper& l) : looper (l), strip (st
     targetEnd.onClick = [this] { editingStart = false; updateReadouts(); strip->repaint(); };
 
     struct NudgeSpec { const char* text; int direction; Nudge size; const char* tip; };
-    for (const NudgeSpec& n : { NudgeSpec { "-beat", -1, Nudge::Beat, "Earlier by a beat of the host tempo" },
+    for (const NudgeSpec& n : { NudgeSpec { "-beat", -1, Nudge::Beat, "Earlier by a beat of the tempo" },
                                 NudgeSpec { "-10ms", -1, Nudge::Ms10, "Earlier by 10 ms" },
                                 NudgeSpec { "-1ms", -1, Nudge::Ms1, "Earlier by 1 ms" },
                                 NudgeSpec { "+1ms", 1, Nudge::Ms1, "Later by 1 ms" },
                                 NudgeSpec { "+10ms", 1, Nudge::Ms10, "Later by 10 ms" },
-                                NudgeSpec { "+beat", 1, Nudge::Beat, "Later by a beat of the host tempo" } })
+                                NudgeSpec { "+beat", 1, Nudge::Beat, "Later by a beat of the tempo" } })
     {
         auto* b = nudgeButtons.add (new juce::TextButton (n.text));
         b->setTooltip (juce::String (n.tip) + ". Before the recording's first frame or after its last adds silence.");
@@ -492,6 +493,11 @@ bool LoopWaveformEditor::editable() const
     return status.length > 0 && status.state != State::Recording && status.state != State::Empty;
 }
 
+int LoopWaveformEditor::beatsPerBar() const
+{
+    return std::max (1, global.beatsPerBar);
+}
+
 double LoopWaveformEditor::beatFrames() const
 {
     return framesPerBeat (global.tempo, global.sampleRate > 0.0 ? global.sampleRate : 48000.0);
@@ -539,7 +545,7 @@ int64_t LoopWaveformEditor::snapped (bool start, int64_t frame, const Edits& e) 
     switch ((Snap) snapBox.getSelectedItemIndex())
     {
         case Snap::Beat: return start ? snapStart (frame, beat) : snapEnd (frame, e.start, beat);
-        case Snap::Bar: return start ? snapStart (frame, 4.0 * beat) : snapEnd (frame, e.start, 4.0 * beat);
+        case Snap::Bar: return start ? snapStart (frame, beatsPerBar() * beat) : snapEnd (frame, e.start, beatsPerBar() * beat);
         case Snap::Off: case Snap::ZeroCrossing: break;
     }
     return frame;

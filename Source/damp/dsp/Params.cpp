@@ -19,6 +19,7 @@ constexpr sv delaySyncs[] { "Off", "1/2", "1/4.", "1/4", "1/4T", "1/8.", "1/8", 
 constexpr sv reverbModes[] { "Spring", "Plate", "Hall" };
 constexpr sv pitchModes[] { "Steps", "Free" };
 constexpr sv looperTrackNames[] { "1", "2", "3", "4", "5", "6", "7", "8" };
+constexpr sv beatsPerBarNames[] { "2", "3", "4", "5", "6", "7" };
 
 // Must be in PID order (checked below)
 constexpr ParamInfo table[] {
@@ -30,7 +31,7 @@ constexpr ParamInfo table[] {
     number (PID::Gain, "gain", "Preamp Gain", "Gain", 0.0f, 10.0f, 5.0f),
 
     choice (PID::Oversampling, "oversampling", "Oversampling", "Quality", oversamplingFactors, (int) Oversampling::X4),
-    number (PID::OutputVolume, "output_volume", "Output Volume", "Volume", -48.0f, 12.0f, 0.0f, "dB"),
+    number (PID::OutputVolume, "output_volume", "Preset Level", "Level", -48.0f, 12.0f, 0.0f, "dB"),
 
     choice (PID::Model, "model", "Amp Model", "Model", ampModels, (int) AmpModel::Crunch),
     number (PID::Bass, "bass", "Bass", "Bass", 0.0f, 10.0f, 5.0f),
@@ -38,7 +39,7 @@ constexpr ParamInfo table[] {
     number (PID::Treble, "treble", "Treble", "Treble", 0.0f, 10.0f, 5.0f),
     number (PID::Presence, "presence", "Presence", "Presence", 0.0f, 10.0f, 5.0f),
     number (PID::Resonance, "resonance", "Resonance", "Resonance", 0.0f, 10.0f, 3.0f),
-    number (PID::Master, "master", "Master Volume", "Master", 0.0f, 10.0f, 5.0f),
+    number (PID::Master, "master", "Amp Master Volume", "Master", 0.0f, 10.0f, 5.0f),
     boolean (PID::Bright, "bright", "Bright Switch", "Bright", false),
     number (PID::Sag, "sag", "Power Supply Sag", "Sag", 0.0f, 2.0f, 1.0f),
 
@@ -217,6 +218,19 @@ constexpr ParamInfo table[] {
     boolean (PID::Track8Reverse, "track8_reverse", "Looper Track 8: Reverse", "Reverse", false),
     boolean (PID::Track8Half, "track8_half", "Looper Track 8: Half Speed", "Half", false),
     boolean (PID::Track8Sync, "track8_sync", "Looper Track 8: Sync", "Sync", true),
+
+    number (PID::MasterOutput, "master_out", "Master Output", "Master", -48.0f, 18.0f, 0.0f, "dB"),
+
+    number (PID::Tempo, "tempo", "Tempo", "BPM", 40.0f, 240.0f, 120.0f, "BPM", 0.0f, 0.01f),
+    boolean (PID::TempoFollowHost, "tempo_follow_host", "Tempo: Follow Host", "Follow", true),
+    boolean (PID::LooperQuantise, "looper_quantise", "Looper: Quantise to Tempo", "Quantise", false),
+
+    boolean (PID::MetronomeOn, "metronome_on", "Metronome: On", "Click", false),
+    number (PID::MetronomeLevel, "metronome_level", "Metronome: Level", "Level", -48.0f, 0.0f, -12.0f, "dB"),
+    boolean (PID::MetronomeAccent, "metronome_accent", "Metronome: Accent", "Accent", true),
+    choice (PID::BeatsPerBar, "beats_per_bar", "Beats per Bar", "Beats", beatsPerBarNames, (int) BeatsPerBar::Four),
+    boolean (PID::CountIn, "count_in", "Looper: Count-in", "Count-in", false),
+    boolean (PID::MetronomeRecOnly, "metronome_rec_only", "Metronome: Only While Recording", "Rec only", false),
 };
 
 static_assert (std::size (table) == (size_t) numParams, "parameter table out of sync with PID");

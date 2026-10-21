@@ -2,13 +2,14 @@
 // checked without anything appearing on screen.
 //
 //   <plugin>_ui_snapshot <output-dir> [factory-preset-index] [edit-layer: A|B (dsynth)] [ui-scale]
-//                        [<param-id>=<value>...] [click=<component-id>...] [looper=ready|demo (damp)]
+//                        [<param-id>=<value>...] [click=<component-id>...] [looper=ready|demo|countin (damp)]
 //
 // Parameters are set (in their own units) before the editor opens; buttons named by click= are
 // clicked once it has. A tab that scrolls also gets a picture of all its content (tabN-all.png).
 // damp: looper=ready switches the looper on with its memory reserved; looper=demo also fills
 // three tracks with test audio (track 1 padded before and after and playing, 2 reversed and
-// stopped, 3 playing), so the looper tab has something to show.
+// stopped, 3 playing), so the looper tab has something to show; looper=countin presses Rec on
+// track 1 with count-in on and stops part way through the count-in bar.
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -67,7 +68,7 @@ void setParam (juce::AudioProcessor& p, const juce::String& id, float value)
             ranged->setValueNotifyingHost (ranged->convertTo0to1 (value));
 }
 
-void prepareLooper (DampAudioProcessor& p, bool demo)
+void prepareLooper (DampAudioProcessor& p, const juce::String& setup)
 {
     constexpr double rate = 48000.0;
     constexpr int block = 512;
@@ -88,7 +89,15 @@ void prepareLooper (DampAudioProcessor& p, bool demo)
     auto& looper = p.getLooper();
     looper.createPool (rate);
     run (0.01);
-    if (! demo)
+    if (setup == "countin")
+    {
+        setParam (p, "count_in", 1.0f);
+        run (0.01);
+        looper.press (damp::Looper::Action::Rec, 0);
+        run (0.6);
+        return;
+    }
+    if (setup != "demo")
         return;
 
     // Two bars at 120 BPM of plucks, a rising chord (reversed: it falls), and a pulsing bass
@@ -142,7 +151,7 @@ int main (int argc, char** argv)
     }
     if (args.empty())
     {
-        std::cerr << "usage: " << argv[0] << " <output-dir> [factory-preset-index] [A|B] [ui-scale] [param=value...] [click=component-id...] [looper=ready|demo]\n";
+        std::cerr << "usage: " << argv[0] << " <output-dir> [factory-preset-index] [A|B] [ui-scale] [param=value...] [click=component-id...] [looper=ready|demo|countin]\n";
         return 1;
     }
 
@@ -178,7 +187,7 @@ int main (int argc, char** argv)
 
 #if DUSTIFY_SNAPSHOT_DAMP
     if (looperSetup.isNotEmpty())
-        prepareLooper (dynamic_cast<DampAudioProcessor&> (*processor), looperSetup == "demo");
+        prepareLooper (dynamic_cast<DampAudioProcessor&> (*processor), looperSetup);
 #endif
 
     // As a host does: createEditor() is private, and the processor tracks its active editor
