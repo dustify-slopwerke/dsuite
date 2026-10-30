@@ -628,6 +628,7 @@ TEST_CASE ("the rig never reads a cab kernel the plugin has freed", "[cab][convo
     auto patch = Patch::defaults();
     patch[PID::Model] = (float) AmpModel::Clean;
     patch[PID::GateOn] = 0.0f;
+    patch[PID::InputMode] = (float) InputMode::Stereo; // both cabs, the right one now and then sitting out
     rig.setPatch (patch);
     rig.prepare (rate, 2000);
     rig.setCabKernelNow (made[0].get());

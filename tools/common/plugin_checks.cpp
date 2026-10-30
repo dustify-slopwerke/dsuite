@@ -516,7 +516,7 @@ void checkOldSessionMigration()
         auto* param = p.apvts.getParameter (id);
         param->setValueNotifyingHost (param->convertTo0to1 (v));
     };
-    // Saved without the parameters added with master_out
+    // Saved without the parameters added with master_out (and input_mode, added after them)
     auto oldSession = [&] (bool withLoops)
     {
         DampAudioProcessor a;
@@ -537,7 +537,7 @@ void checkOldSessionMigration()
         auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
         const auto xmlBytes = (size_t) juce::ByteOrder::littleEndianInt (juce::addBytesToPointer (state.getData(), 4)) + 9;
         for (const char* id : { "master_out", "tempo", "tempo_follow_host", "looper_quantise", "metronome_on", "metronome_level",
-                                "metronome_accent", "beats_per_bar", "count_in", "metronome_rec_only" })
+                                "metronome_accent", "beats_per_bar", "count_in", "metronome_rec_only", "input_mode" })
             if (auto* p = xml->getChildByAttribute ("id", id))
                 xml->removeChildElement (p, true);
         juce::MemoryBlock old;
@@ -555,6 +555,7 @@ void checkOldSessionMigration()
         b.prepareToPlay (48000.0, 256);
         set (b, "master_out", 6.0f); // absent from the session: back to its default
         set (b, "tempo", 90.0f);
+        set (b, "input_mode", 3.0f); // Stereo
         b.setStateInformation (old.getData(), (int) old.getSize());
         const float shift = withLoops ? -9.0f : 0.0f;
         if (std::abs (value (b, "output_volume") + 9.0f) > 1.0e-4f || std::abs (value (b, "track1_level") - shift) > 1.0e-4f
@@ -563,7 +564,8 @@ void checkOldSessionMigration()
             || std::abs (value (b, "track4_level") + 48.0f) > 1.0e-4f)
             fail (juce::String ("an old session's loop levels didn't take its output volume") + (withLoops ? "" : " (no loops)") + ": track 1 "
                   + juce::String (value (b, "track1_level")) + " dB, track 2 " + juce::String (value (b, "track2_level")) + " dB");
-        if (std::abs (value (b, "master_out")) > 1.0e-4f || std::abs (value (b, "tempo") - 120.0f) > 1.0e-3f)
+        if (std::abs (value (b, "master_out")) > 1.0e-4f || std::abs (value (b, "tempo") - 120.0f) > 1.0e-3f
+            || value (b, "input_mode") != 0.0f) // Left
             fail ("parameters an old session doesn't mention didn't go to their defaults");
         if (withLoops && b.getLooper().trackStatus (0).length != 20000)
             fail ("an old session's loops didn't load");

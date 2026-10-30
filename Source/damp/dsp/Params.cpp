@@ -20,6 +20,7 @@ constexpr sv reverbModes[] { "Spring", "Plate", "Hall" };
 constexpr sv pitchModes[] { "Steps", "Free" };
 constexpr sv looperTrackNames[] { "1", "2", "3", "4", "5", "6", "7", "8" };
 constexpr sv beatsPerBarNames[] { "2", "3", "4", "5", "6", "7" };
+constexpr sv inputModes[] { "Left", "Right", "Sum", "Stereo" };
 
 // Must be in PID order (checked below)
 constexpr ParamInfo table[] {
@@ -231,6 +232,8 @@ constexpr ParamInfo table[] {
     choice (PID::BeatsPerBar, "beats_per_bar", "Beats per Bar", "Beats", beatsPerBarNames, (int) BeatsPerBar::Four),
     boolean (PID::CountIn, "count_in", "Looper: Count-in", "Count-in", false),
     boolean (PID::MetronomeRecOnly, "metronome_rec_only", "Metronome: Only While Recording", "Rec only", false),
+
+    choice (PID::InputMode, "input_mode", "Input", "Input", inputModes, (int) InputMode::Left),
 };
 
 static_assert (std::size (table) == (size_t) numParams, "parameter table out of sync with PID");

@@ -55,6 +55,9 @@ private:
     juce::Label impulseName;
     juce::TextButton tunerButton { "Tuner" };
     LevelMeter inputMeter { "IN" }, outputMeter { "OUT" };
+    juce::Label inputLabel;
+    juce::ComboBox inputMode;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> inputModeAttachment;
     juce::Label masterLabel;
     juce::Slider master;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAttachment;

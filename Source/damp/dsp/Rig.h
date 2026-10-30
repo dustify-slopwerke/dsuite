@@ -52,8 +52,12 @@ public:
     bool cabSwitching() const;
 
     // In place. right == nullptr: mono in and out. monoInput with right != nullptr: the input is
-    // in left only, and right receives the stereo output.
+    // in left only, and right receives the stereo output. A stereo input (! monoInput) goes in as
+    // the patch's InputMode says: one channel (or the two summed) as a mono input, or both.
     void process (float* left, float* right, int n, bool monoInput);
+
+    // A stereo input to the mono one `mode` picks, into left; false for Stereo (left as it was)
+    static bool toMono (InputMode mode, float* left, const float* right, int n);
 
     // After the level, before the metronome and master output (see Looper for its threads)
     Looper& looper() { return loops; }
@@ -67,6 +71,7 @@ private:
     Metronome metronome;
     std::array<dustify::Convolver, 2> cab;
     bool rightCabIdle = false; // the right cab sat out a mono block: it catches up when next used
+    InputMode inputMode = InputMode::Left;
     double rate = 48000.0;
     float smoothing = 1.0f;
     dustify::Smoother outputGain, masterGain;

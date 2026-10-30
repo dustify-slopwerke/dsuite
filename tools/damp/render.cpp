@@ -6,7 +6,8 @@
 //               [--ir cab.wav] [--board "pedal, ..., amp, ..."] [--bpm tempo] [--tail seconds]
 //               [--block samples] [--keep-latency] [--loop actions] [--loop-out prefix] -o out.wav
 //
-// A mono input runs one amp (the output is the same on both sides), a stereo one two. The output
+// A mono input runs one amp (the output is the same on both sides); a stereo one goes in as
+// input_mode says: its left channel by default, --set input_mode=Stereo for two amps. The output
 // is shifted back by the plugin's latency unless --keep-latency. --guitar plays plucked strings (a
 // stand-in for a DI'd guitar: "note:start:dur[:vel],..." or "demo"), peaking at --level (-12 dBFS). --ir loads a cabinet impulse
 // response and selects it (over any preset's cab). --bpm sets the tempo synced pedals and the

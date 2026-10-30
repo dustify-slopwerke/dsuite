@@ -6,7 +6,14 @@ preamp tube stages, tone stacks and power sections rather than captured snapshot
 
 Supported bus layouts: mono in / mono out, mono in / stereo out, stereo in / stereo out. With a
 mono input the amp and cab run once and the stereo pedals after the amp (chorus, delay, reverb
-and so on) can spread the signal to stereo. A stereo input runs two amps keyed by one noise gate.
+and so on) can spread the signal to stereo.
+
+With a stereo input, **Input** (header) picks what goes in: **Left** (default), **Right**, or
+**Sum** (the average of both) play as a mono input, as above. Use one of these when an
+interface presents one guitar input on both channels. **Stereo** runs two amps, one per
+channel, keyed by one noise gate. The Octave and Pitch Shifter track the left channel and apply
+the same octaves and splices to both, so a mono source on both channels stays mono. Input is
+saved with the session, not in presets. A mono input ignores it.
 
 ## Signal chain
 
@@ -27,7 +34,7 @@ input -> Input Gain -> Noise Gate -> [pedals before the amp] -> amp -> cabinet
 
 ## Editor
 
-- Header: title, **Tuner** button, input and output meters, **Master**, preset bar.
+- Header: title, **Tuner** button, **Input**, input and output meters, **Master**, preset bar.
 - Tabs: **Amp**, **Pedals**, **Looper**.
 - The window is resizable with a fixed aspect ratio (60% to 200%); the size is saved with the session.
 - Controls that do nothing in the current setup are dimmed (gate controls with the gate off,

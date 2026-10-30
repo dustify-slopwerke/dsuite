@@ -446,8 +446,18 @@ void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     juce::ScopedNoDenormals noDenormals;
 
     const int numSamples = buffer.getNumSamples();
-    const int numInputs = juce::jmax (1, getTotalNumInputChannels());
+    int numInputs = juce::jmax (1, getTotalNumInputChannels());
     delayDry (buffer, numInputs);
+
+    // A stereo input: the channel the guitar is on, or both summed, as a mono input (the meter
+    // and tuner read it too), unless set to Stereo
+    if (numInputs >= 2 && buffer.getNumChannels() >= 2)
+    {
+        const float choice = rawParams[(size_t) damp::PID::InputMode]->load (std::memory_order_relaxed);
+        const auto mode = (damp::InputMode) juce::jlimit (0, 3, (int) std::lround (choice));
+        if (damp::Rig::toMono (mode, buffer.getWritePointer (0), buffer.getReadPointer (1), numSamples))
+            numInputs = 1;
+    }
 
     float peak = 0.0f;
     for (int ch = 0; ch < juce::jmin (numInputs, buffer.getNumChannels()); ++ch)

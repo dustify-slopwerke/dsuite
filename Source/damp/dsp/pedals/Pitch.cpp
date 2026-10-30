@@ -71,6 +71,8 @@ void Pitch::reset()
         s.rho = 1.0f;
         s.wait = 0;
     }
+    tickCount = 0;
+    ledLength = -1;
     fresh = true;
 }
 
@@ -317,12 +319,57 @@ std::pair<double, float> Pitch::findSplice (const State& s, double tapDelay, int
     return { best.first * decimation, std::clamp (best.second, 0.0f, 1.0f) };
 }
 
+Pitch::Tap Pitch::tapOf (const State& s)
+{
+    return { s.semis, s.ratio, s.ratioStep, s.delay, s.fading, s.fade, s.fadeStep, s.rho, s.highCut.g };
+}
+
+void Pitch::setTap (State& s, const Tap& t)
+{
+    s.semis = t.semis;
+    s.ratio = t.ratio;
+    s.ratioStep = t.ratioStep;
+    s.delay = t.delay;
+    s.fading = t.fading;
+    s.fade = t.fade;
+    s.fadeStep = t.fadeStep;
+    s.rho = t.rho;
+    s.highCut.g = t.highCut;
+}
+
 void Pitch::process (int channel, float* x, int n)
 {
     auto& s = state[(size_t) channel];
+    if (channel == 0)
+    {
+        // The left leads: its taps at the start and after each tick, for the right to follow
+        ledStart = tapOf (s);
+        tickCount = 0;
+        ledLength = n;
+        processAs<Role::lead> (s, x, n);
+        if (tickCount > maxTicks)
+            ledLength = -1; // a block too long to record (not from Board): the right goes alone
+    }
+    else if (ledLength == n)
+    {
+        // The same block on the right: the same taps, sample for sample
+        setTap (s, ledStart);
+        processAs<Role::follow> (s, x, n);
+        ledLength = -1;
+    }
+    else
+    {
+        processAs<Role::alone> (s, x, n);
+    }
+}
+
+template <Pitch::Role role>
+void Pitch::processAs (State& s, float* x, int n)
+{
     s.dry.toward (dryTarget, n);
     s.wet.toward (wetTarget, n);
     const float toCoarse = 1.0f / (float) decimation;
+    int tick = 0; // following: the next of the left's ticks
     for (int i = 0; i < n; ++i)
     {
         const float in = x[i];
@@ -339,14 +386,28 @@ void Pitch::process (int channel, float* x, int n)
         }
         s.line.push (in);
 
-        s.sum += s.antiAlias2.lowpass (s.antiAlias1.lowpass (in));
-        if (++s.count == decimation)
+        if constexpr (role == Role::follow)
         {
-            s.coarse[(size_t) s.coarseWrite] = s.sum * toCoarse;
-            s.coarseWrite = (s.coarseWrite + 1) & coarseMask;
-            s.sum = 0.0f;
-            s.count = 0;
-            control (s);
+            if (tick < tickCount && ticks[(size_t) tick].index == i)
+                setTap (s, ticks[(size_t) tick++].tap);
+        }
+        else
+        {
+            s.sum += s.antiAlias2.lowpass (s.antiAlias1.lowpass (in));
+            if (++s.count == decimation)
+            {
+                s.coarse[(size_t) s.coarseWrite] = s.sum * toCoarse;
+                s.coarseWrite = (s.coarseWrite + 1) & coarseMask;
+                s.sum = 0.0f;
+                s.count = 0;
+                control (s);
+                if constexpr (role == Role::lead)
+                {
+                    if (tickCount < maxTicks)
+                        ticks[(size_t) tickCount] = { i, tapOf (s) };
+                    ++tickCount;
+                }
+            }
         }
 
         s.ratio += s.ratioStep;

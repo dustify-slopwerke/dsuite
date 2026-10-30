@@ -21,6 +21,7 @@ void Rig::setPatch (const Patch& p)
     outputGain.target = p[PID::OutputVolume] <= -48.0f ? 0.0f : std::pow (10.0f, p[PID::OutputVolume] / 20.0f);
     masterGain.target = p[PID::MasterOutput] <= -48.0f ? 0.0f : std::pow (10.0f, p[PID::MasterOutput] / 20.0f);
     metronome.setPatch (p[PID::MetronomeLevel], p.on (PID::MetronomeAccent));
+    inputMode = p.choice<InputMode> (PID::InputMode);
 }
 
 void Rig::setBoard (const BoardOrder& b)
@@ -80,9 +81,26 @@ bool Rig::cabSwitching() const
     return cab[0].isSwitching() || (! rightCabIdle && cab[1].isSwitching());
 }
 
+bool Rig::toMono (InputMode mode, float* left, const float* right, int n)
+{
+    switch (mode)
+    {
+        case InputMode::Left: return true;
+        case InputMode::Right: std::copy_n (right, n, left); return true;
+        case InputMode::Sum:
+            for (int i = 0; i < n; ++i)
+                left[i] = 0.5f * (left[i] + right[i]);
+            return true;
+        case InputMode::Stereo: break;
+    }
+    return false;
+}
+
 void Rig::process (float* left, float* right, int n, bool monoInput)
 {
     dustify::ScopedFlushDenormals noDenormals;
+    if (right != nullptr && ! monoInput)
+        monoInput = toMono (inputMode, left, right, n);
     for (int done = 0; done < n;)
     {
         const int chunk = std::min (n - done, Board::maxBlock);

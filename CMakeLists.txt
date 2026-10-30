@@ -235,7 +235,8 @@ if(DUSTIFY_BUILD_TESTS)
         tests/damp/EqPedalTests.cpp
         tests/damp/LooperTests.cpp
         tests/damp/LoopEditMathTests.cpp
-        tests/damp/TempoTests.cpp)
+        tests/damp/TempoTests.cpp
+        tests/damp/StereoInputTests.cpp)
     target_include_directories(damp_tests PRIVATE tests)
     target_link_libraries(damp_tests PRIVATE damp_dsp Catch2::Catch2WithMain)
     target_compile_definitions(damp_tests PRIVATE DAMP_PRESET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/presets/damp")

@@ -63,6 +63,23 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
     content.addAndMakeVisible (inputMeter);
     content.addAndMakeVisible (outputMeter);
 
+    // Which of a stereo input's channels the guitar is on (session only, not in presets)
+    inputLabel.setText ("Input", juce::dontSendNotification);
+    inputLabel.setFont (juce::FontOptions (12.5f));
+    inputLabel.setColour (juce::Label::textColourId, juce::Colour (P::dimText));
+    inputLabel.setJustificationType (juce::Justification::centredRight);
+    content.addAndMakeVisible (inputLabel);
+    inputMode.setComponentID ("inputMode");
+    const auto& modes = damp::paramInfo (InputMode).choices;
+    for (int i = 0; i < (int) modes.size(); ++i)
+        inputMode.addItem (juce::String (std::string (modes[(size_t) i])), i + 1);
+    inputMode.setTooltip ("A stereo input: the channel your guitar is on, or both summed, played as one; "
+                          "Stereo runs each through its own amp. A mono input ignores it. Not saved in presets.");
+    inputLabel.setTooltip (inputMode.getTooltip());
+    content.addAndMakeVisible (inputMode);
+    inputModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        processor.apvts, dustify::toJuce (damp::paramInfo (InputMode).id), inputMode);
+
     // The master output: everything heard, live sound and loops (session only, not in presets)
     masterLabel.setText ("Master", juce::dontSendNotification);
     masterLabel.setFont (juce::FontOptions (12.5f));
@@ -124,7 +141,11 @@ void DampAudioProcessorEditor::layoutContent()
     title.setBounds (top.removeFromLeft (90));
     presets.setBounds (top.removeFromRight (420));
     tunerButton.setBounds (top.removeFromLeft (72).reduced (0, 4));
-    top.removeFromLeft (16);
+    top.removeFromLeft (8);
+    inputLabel.setBounds (top.removeFromLeft (40));
+    top.removeFromLeft (4);
+    inputMode.setBounds (top.removeFromLeft (84).reduced (0, 6));
+    top.removeFromLeft (12);
     top.removeFromRight (12);
     master.setBounds (top.removeFromRight (150).reduced (0, 7));
     masterLabel.setBounds (top.removeFromRight (52));
@@ -156,6 +177,7 @@ void DampAudioProcessorEditor::timerCallback()
     inputMeter.setPeak (processor.takeInputPeak(), seconds);
     outputMeter.setPeak (processor.takeOutputPeak(), seconds);
     tuner.update (seconds);
+    inputMode.setEnabled (processor.getTotalNumInputChannels() >= 2);
     looperView.update();
     updateRelevance();
     pedalboard.refresh (pedalViewport.getWidth() - pedalViewport.getScrollBarThickness()); // a preset may have moved pedals

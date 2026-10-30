@@ -72,6 +72,8 @@ enum class PID : int
     MasterOutput,
     Tempo, TempoFollowHost, LooperQuantise,
     MetronomeOn, MetronomeLevel, MetronomeAccent, BeatsPerBar, CountIn, MetronomeRecOnly,
+    // Session only: which of a stereo input's channels is the guitar (see InputMode)
+    InputMode,
 
     Count
 };
@@ -99,6 +101,9 @@ enum class ReverbMode : int { Spring, Plate, Hall };
 enum class PitchMode : int { Steps, Free };
 enum class BeatsPerBar : int { Two, Three, Four, Five, Six, Seven }; // index + 2 beats
 constexpr int beatsPerBar (int index) { return index + 2; }
+// A stereo input: one channel, or their average, as a mono input (one amp, the effects after it
+// still stereo), or each channel through its own amp and pedals. A mono input ignores it.
+enum class InputMode : int { Left, Right, Sum, Stereo };
 
 // Looper tracks: each has the same parameters, in this order from Track1Level on
 constexpr int looperTracks = 8;
@@ -109,8 +114,9 @@ constexpr PID trackParam (int track, TrackParam p)
 }
 static_assert (trackParam (looperTracks - 1, TrackParam::Sync) == PID::Track8Sync);
 
-// Presets hold the sound, not the looper, tempo, metronome or master output: those live only in
+// Presets hold the sound, not the looper, tempo, metronome, master output or input: those live only in
 // the session
 constexpr bool inPresets (PID p) { return (int) p < (int) PID::LooperOn; }
+static_assert (! inPresets (PID::MasterOutput) && ! inPresets (PID::InputMode)); // session only
 
 } // namespace damp

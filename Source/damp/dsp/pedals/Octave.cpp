@@ -21,6 +21,7 @@ void Octave::reset()
 {
     for (auto& s : state)
         s = {};
+    ledLength = -1;
     fresh = true;
 }
 
@@ -55,6 +56,32 @@ void Octave::setPatch (const Patch& p, double sampleRate, int samples)
 void Octave::process (int channel, float* x, int n)
 {
     auto& s = state[(size_t) channel];
+    if (channel == 0)
+    {
+        // The left leads, keeping its octaves for the right
+        ledLength = n <= maxLed ? n : -1;
+        if (ledLength > 0)
+            track<true> (s, x, n);
+        else
+            track<false> (s, x, n);
+    }
+    else if (ledLength == n)
+    {
+        // The same block on the right: its own direct guitar, the left's octaves
+        s.direct.toward (directTarget, n);
+        for (int i = 0; i < n; ++i)
+            x[i] = s.direct.next() * x[i] + ledSubs[(size_t) i];
+        ledLength = -1;
+    }
+    else
+    {
+        track<false> (s, x, n);
+    }
+}
+
+template <bool lead>
+void Octave::track (State& s, float* x, int n)
+{
     s.direct.toward (directTarget, n);
     s.oct1.toward (oct1Target, n);
     s.oct2.toward (oct2Target, n);
@@ -89,6 +116,8 @@ void Octave::process (int channel, float* x, int n)
         const float rectified = std::abs (carrier);
         const float sub2 = s.sub2Tone.lowpass (s.second ? rectified : -rectified);
         const float subs = s.output.highpass (s.oct1.next() * sub1 + s.oct2.next() * sub2);
+        if constexpr (lead)
+            ledSubs[(size_t) i] = subs;
         x[i] = s.direct.next() * x[i] + subs;
     }
 }

@@ -26,6 +26,9 @@ namespace damp::pedals
 // At unison the tap stands still (a few samples behind the input) and so is the dry guitar.
 // Up to 2 octaves either way. The delay wanders between the splices: 6-9 ms on average for a
 // single note (0.5-15 ms), up to ~35 ms for a chord shifted down.
+// In stereo the channels are linked: the left decides where to splice and the right splices at
+// the same samples by the same amounts, so the two taps never drift apart (deciding apart, the
+// least difference between the inputs, a mono guitar on two inputs, would decorrelate them).
 class Pitch final : public Pedal
 {
 public:
@@ -53,6 +56,24 @@ private:
         Ramp dry, wet;
     };
 
+    // What a splice moves: the right follows the left's
+    struct Tap
+    {
+        double semis, ratio, ratioStep, delay, fading;
+        float fade, fadeStep, rho, highCut;
+    };
+    // The left's taps after each control tick of its last block, for the right to follow
+    struct Tick
+    {
+        int index;
+        Tap tap;
+    };
+    enum class Role { alone, lead, follow };
+    static Tap tapOf (const State&);
+    static void setTap (State&, const Tap&);
+    template <Role role>
+    void processAs (State&, float* x, int n);
+
     void configure (double rate);
     void control (State&);
     void splice (State&, double jump, float match, double fadeSamples);
@@ -75,6 +96,11 @@ private:
     float glide = 1.0f;               // the shift's glide per control tick
     double semisTarget = 0.0;
     float dryTarget = 0.0f, wetTarget = 1.0f;
+    static constexpr int maxTicks = 512 + 1; // a block of Board::maxBlock at the control rate, or more
+    std::array<Tick, maxTicks> ticks {};
+    int tickCount = 0;
+    int ledLength = -1; // the left's last block, while the right may follow it (else -1)
+    Tap ledStart {};
     std::array<float, 512> scores {};
     std::array<float, 512 + 2 * 256 + 64> run {}; // findSplice's scratch
 };
