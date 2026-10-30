@@ -342,7 +342,7 @@ Grouped by category in the menu (file-name prefixes keep them in order):
 | Clean, Edge of Breakup, Crunch, Lead, High Gain | General-purpose sounds across the amp models |
 | '70s Songs, '80s Songs | Sounds inspired by well-known recordings of those decades |
 | Ambient & FX | Effects-led sounds (octave, shimmer, surf spring and similar) |
-| Metallica, Nu-Metal, CKY | Sounds inspired by recordings of those artists and that genre |
+| Metallica, Nu-Metal, CKY, Deftones | Sounds inspired by recordings of those artists and that genre |
 
 Song presets are interpretations inspired by the original recordings, not reproductions of
 them; results depend on your guitar, pickups and playing.

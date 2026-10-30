@@ -1,6 +1,6 @@
 # damp preset
 name = Knife Prty (Riff)
-category = Nu-Metal
+category = Deftones
 board = pitch, wah, compressor, octave, face_fuzz, big_fuzz, rodent, distortion, blues_drive, mid_drive, boost, amp, eq, phaser, flanger, chorus, vibrato, tremolo, delay, reverb
 model = Modern High Gain
 gain = 6
