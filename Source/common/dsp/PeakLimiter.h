@@ -63,17 +63,19 @@ public:
             const float peak = std::max (std::abs (inLeft), std::abs (inRight));
             const float needed = peak > ceiling ? ceiling / peak : 1.0f;
 
-            // The minimum over the window (a monotonic queue, oldest first)
+            // The minimum over the window (a monotonic queue, oldest first). The sample leaving the
+            // window goes before the new one is pushed: with a rising run of values (a peak falling
+            // away over the ceiling) the queue is full, and pushing first would overwrite its head
+            if (minCount > 0 && minIndex[(size_t) minHead] + window <= sampleIndex)
+            {
+                minHead = (minHead + 1) % window;
+                --minCount;
+            }
             while (minCount > 0 && minValue[back()] >= needed)
                 --minCount;
             minValue[slot (minCount)] = needed;
             minIndex[slot (minCount)] = sampleIndex;
             ++minCount;
-            if (minIndex[(size_t) minHead] + window <= sampleIndex)
-            {
-                minHead = (minHead + 1) % window;
-                --minCount;
-            }
             const float held = minValue[(size_t) minHead];
 
             // ...averaged over the window: a linear ramp that lands on each peak's gain. The sum

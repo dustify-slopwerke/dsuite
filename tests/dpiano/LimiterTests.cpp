@@ -244,3 +244,30 @@ TEST_CASE ("the piano's limiter holds fortissimo chords at -1 dBFS, even at full
     }
     CHECK (count >= 10);
 }
+
+TEST_CASE ("peak limiter: a slowly falling peak (a low note above the ceiling) is held by the gain, not clipped", "[limiter]")
+{
+    // A falling slope over the ceiling makes each sample need a little less gain reduction than
+    // the one before, for far longer than the look-ahead window: the window minimum has to keep
+    // tracking the oldest (loudest) sample in it
+    const double rate = GENERATE (44100.0, 48000.0, 96000.0);
+    const int latency = (int) std::lround (0.001 * rate);
+    Stereo in;
+    for (int i = 0; i < (int) (0.5 * rate); ++i)
+    {
+        const float s = 4.0f * std::sin (2.0f * 3.14159265f * 40.0f * (float) i / (float) rate);
+        in.left.push_back (s);
+        in.right.push_back (0.5f * s);
+    }
+    checkLimited (in, limit (in, rate), latency);
+
+    // A plain decay from far over the ceiling
+    Stereo decay;
+    for (int i = 0; i < (int) (0.2 * rate); ++i)
+    {
+        const float s = 8.0f * std::exp (-(float) i / (0.05f * (float) rate));
+        decay.left.push_back (s);
+        decay.right.push_back (-0.7f * s);
+    }
+    checkLimited (decay, limit (decay, rate), latency);
+}
