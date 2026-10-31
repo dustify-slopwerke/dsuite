@@ -2,6 +2,7 @@
 
 #include "Engine.h"
 
+#include <algorithm>
 #include <array>
 
 namespace dsynth
@@ -39,8 +40,11 @@ private:
     int splitNote = 60;
     float targetGain[2] { 1.0f, 1.0f }, gain[2] { 1.0f, 1.0f }, gainCoeff = 0.001f;
 
-    // Which layers each sounding note went to, so note-offs follow even if the setup changes
-    std::array<uint8_t, 128> routed {};
+    // Which layers each sounding note (per channel under MPE) went to, so note-offs follow even
+    // if the setup changes
+    size_t routeIndex (int note, int channel) const { return (size_t) (mpe ? note + 128 * std::clamp (channel, 0, 15) : note); }
+    bool mpe = false;
+    std::array<uint8_t, 128 * 16> routed {};
     static constexpr uint8_t toA = 1, toB = 2;
 
     static constexpr int chunk = 256;

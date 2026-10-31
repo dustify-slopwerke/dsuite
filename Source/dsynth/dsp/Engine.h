@@ -12,6 +12,7 @@
 #include "common/dsp/Reverb.h"
 #include "common/dsp/Smoother.h"
 
+#include <algorithm>
 #include <array>
 #include <vector>
 
@@ -62,14 +63,24 @@ private:
     void render (float* left, float* right, int n);
     float shapeVelocity (float) const;
     void voiceNoteOn (int note, float velocity, int channel = 0);
-    void voiceNoteOff (int note);
+    void voiceNoteOff (int note, int channel = 0);
     void updateArpClock();
     void updateEffects();
     void monoUpdate (bool newKeyPressed, float velocity);
     int pickMonoNote() const;
     int monoVoiceCount() const { return mode == VoiceMode::Unison ? unisonCount : 1; }
-    Voice& allocatePolyVoice (int note);
-    void releaseNote (int note);
+    Voice& allocatePolyVoice (int key);
+    void releaseNote (int key);
+
+    // A held key: the note, plus its channel under MPE, where the same note can be down on
+    // several channels at once (each its own voice); just the note otherwise
+    int keyFor (int note, int channel) const { return block.mpe ? note + 128 * std::clamp (channel, 0, 15) : note; }
+    static int noteOf (int key) { return key & 127; }
+    static int channelOf (int key) { return key >> 7; }
+    bool voicePlaysKey (const Voice& v, int key) const
+    {
+        return v.getNote() == noteOf (key) && (! block.mpe || v.getChannel() == channelOf (key));
+    }
     bool anyKeyHeld() const { return heldCount > 0; }
 
     double hostRate = 48000.0, internalRate = 96000.0;
@@ -82,16 +93,16 @@ private:
     uint64_t ageCounter = 0;
     int rotateNext = 0; // Rotate key assign: where the search for the next voice starts
 
-    // Keys in the order they were pressed (for mono note priority)
+    // Keys (see keyFor) in the order they were pressed (for mono note priority)
+    static constexpr int maxKeys = 128 * 16;
     std::array<int, 128> held {};
     int heldCount = 0;
-    std::array<bool, 128> sustained {};
-    std::array<int, 128> heldChannel {};
+    std::array<bool, maxKeys> sustained {};
     std::array<NoteExpression, 16> channels {};
     std::array<float, 128> notePressure {};
     float globalTimbre = 0.0f;
     bool sustainDown = false;
-    int monoNote = -1;
+    int monoNote = -1, monoKey = -1;
 
     float bend = 0.0f, wheel = 0.0f, pressure = 0.0f, lastVelocity = 1.0f;
     int unisonCount = 4;

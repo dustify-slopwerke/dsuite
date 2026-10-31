@@ -20,6 +20,11 @@ void LayeredSynth::setPatches (const Patch& patchA, const Patch& patchB)
 {
     // Notes already sounding keep their routing for note-off; new notes follow the new setup
     mode = patchA.choice<LayerMode> (PID::LayerMode);
+    if (patchA.on (PID::MpeMode) != mpe)
+    {
+        mpe = ! mpe;
+        routed.fill (0); // the engines drop their notes too
+    }
     splitNote = (int) patchA[PID::SplitNote];
 
     const float balance = patchA[PID::LayerBalance];
@@ -54,11 +59,12 @@ void LayeredSynth::noteOn (int note, float velocity, int channel)
         to = note < splitNote ? toB : toA;
 
     // A re-pressed note may have gone elsewhere last time: release it there first
-    const uint8_t stale = routed[(size_t) note] & ~to;
+    auto& route = routed[routeIndex (note, channel)];
+    const uint8_t stale = route & ~to;
     if (stale & toA) a.noteOff (note, channel);
     if (stale & toB) b.noteOff (note, channel);
 
-    routed[(size_t) note] = to;
+    route = to;
     if (to & toA) a.noteOn (note, velocity, channel);
     if (to & toB) b.noteOn (note, velocity, channel);
 }
@@ -67,8 +73,9 @@ void LayeredSynth::noteOff (int note, int channel)
 {
     if (note < 0 || note > 127)
         return;
-    const uint8_t to = routed[(size_t) note];
-    routed[(size_t) note] = 0;
+    auto& route = routed[routeIndex (note, channel)];
+    const uint8_t to = route;
+    route = 0;
     if (to & toA) a.noteOff (note, channel);
     if (to & toB) b.noteOff (note, channel);
 }

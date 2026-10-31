@@ -42,7 +42,7 @@ void Engine::prepare (double hostSampleRate)
 
     heldCount = 0;
     sustained.fill (false);
-    monoNote = -1;
+    monoNote = monoKey = -1;
     firstPatch = true;
     setPatch (patch);
 }
@@ -91,6 +91,8 @@ void Engine::setPatch (const Patch& newPatch)
         mode = newMode;
     }
     unisonCount = std::clamp (newUnisonCount, 1, maxVoices);
+    if (patch.on (PID::MpeMode) != block.mpe)
+        allNotesOff(); // held keys are counted per channel under MPE, per note otherwise
     // Unison voices are mostly coherent: scale so stacking adds thickness rather than ~N x level
     stackGain = mode == VoiceMode::Unison ? 1.0f / std::sqrt ((float) unisonCount) : 1.0f;
 
@@ -322,43 +324,49 @@ void Engine::noteOn (int note, float velocity, int channel)
         voiceNoteOn (note, velocity, channel);
 }
 
-void Engine::noteOff (int note, int)
+void Engine::noteOff (int note, int channel)
 {
     if (arpOn)
         arp.keyUp (note);
     else
-        voiceNoteOff (note);
+        voiceNoteOff (note, channel);
 }
 
 void Engine::voiceNoteOn (int note, float velocity, int channel)
 {
     if (note < 0 || note > 127)
         return;
-    heldChannel[(size_t) note] = std::clamp (channel, 0, 15);
+    channel = std::clamp (channel, 0, 15);
+    const int key = keyFor (note, channel);
     notePressure[(size_t) note] = 0.0f;
 
     // Ignore a duplicate note-on for a held key, but keep its position fresh for priority
     auto end = held.begin() + heldCount;
-    if (auto it = std::find (held.begin(), end, note); it != end)
+    if (auto it = std::find (held.begin(), end, key); it != end)
     {
         std::rotate (it, it + 1, end);
         --heldCount;
     }
+    if (heldCount == (int) held.size())
+    {
+        std::rotate (held.begin(), held.begin() + 1, held.end()); // MPE: forget the oldest
+        --heldCount;
+    }
     if (heldCount == 0 && patch.on (PID::LfoKeySync))
         lfo.reset();
-    held[(size_t) heldCount++] = note;
-    sustained[(size_t) note] = false;
+    held[(size_t) heldCount++] = key;
+    sustained[(size_t) key] = false;
     lastVelocity = velocity;
 
     if (mode == VoiceMode::Poly)
     {
         const bool otherKeysHeld = heldCount > 1;
         const bool glide = patch.choice<GlideMode> (PID::GlideMode) == GlideMode::Always || otherKeysHeld;
-        auto& v = allocatePolyVoice (note);
+        auto& v = allocatePolyVoice (key);
         // Fixed per-voice positions, alternating sides from the outside in (Jupiter-8 style)
         constexpr float positions[maxVoices] { -1.0f, 1.0f, -0.71f, 0.71f, -0.43f, 0.43f, -0.14f, 0.14f };
         v.setPan (positions[&v - voices.data()] * patch[PID::PanSpread]);
-        v.start (note, velocity, true, glide, block, heldChannel[(size_t) note]);
+        v.start (note, velocity, true, glide, block, channel);
         v.setAge (++ageCounter);
     }
     else
@@ -367,13 +375,14 @@ void Engine::voiceNoteOn (int note, float velocity, int channel)
     }
 }
 
-void Engine::voiceNoteOff (int note)
+void Engine::voiceNoteOff (int note, int channel)
 {
     if (note < 0 || note > 127)
         return;
+    const int key = keyFor (note, channel);
 
     auto end = held.begin() + heldCount;
-    auto it = std::find (held.begin(), end, note);
+    auto it = std::find (held.begin(), end, key);
     if (it == end)
         return;
     std::rotate (it, it + 1, end);
@@ -382,9 +391,9 @@ void Engine::voiceNoteOff (int note)
     if (mode == VoiceMode::Poly)
     {
         if (sustainDown)
-            sustained[(size_t) note] = true;
+            sustained[(size_t) key] = true;
         else
-            releaseNote (note);
+            releaseNote (key);
     }
     else
     {
@@ -397,16 +406,17 @@ int Engine::pickMonoNote() const
     if (heldCount == 0)
         return -1;
 
-    if (mode == VoiceMode::Duo)
-        return *std::min_element (held.begin(), held.begin() + heldCount);
-
     const auto begin = held.begin();
     const auto end = begin + heldCount;
+    auto byNote = [] (int a, int b) { return noteOf (a) < noteOf (b); };
+    if (mode == VoiceMode::Duo)
+        return *std::min_element (begin, end, byNote);
+
     switch (patch.choice<NotePriority> (PID::NotePriority))
     {
         case NotePriority::Last: return held[(size_t) heldCount - 1];
-        case NotePriority::Low: return *std::min_element (begin, end);
-        case NotePriority::High: return *std::max_element (begin, end);
+        case NotePriority::Low: return *std::min_element (begin, end, byNote);
+        case NotePriority::High: return *std::max_element (begin, end, byNote);
     }
     return held[(size_t) heldCount - 1];
 }
@@ -415,29 +425,30 @@ void Engine::monoUpdate (bool newKeyPressed, float velocity)
 {
     // Mono and Legato drive voice 0; Unison drives the first unisonCount voices as one.
     const int count = monoVoiceCount();
-    const int target = pickMonoNote();
+    const int targetKey = pickMonoNote();
 
-    if (target < 0)
+    if (targetKey < 0)
     {
         if (! sustainDown)
         {
             for (int i = 0; i < count; ++i)
                 voices[(size_t) i].release();
-            monoNote = -1;
+            monoNote = monoKey = -1;
         }
         return;
     }
+    const int target = noteOf (targetKey);
 
     // Duo (ARP Odyssey): osc 1 takes the lowest key, osc 2 the highest
     if (mode == VoiceMode::Duo)
     {
         const auto end = held.begin() + heldCount;
-        const int highest = *std::max_element (held.begin(), end);
+        const int highest = noteOf (*std::max_element (held.begin(), end, [] (int a, int b) { return noteOf (a) < noteOf (b); }));
         voices[0].setDuoOffset ((float) (highest - target) + block.tuning[highest % 12] - block.tuning[target % 12]);
     }
 
     const bool legato = voices[0].isGateOn();
-    if (legato && target == monoNote)
+    if (legato && targetKey == monoKey)
         return; // e.g. low-note priority and a higher key went down: nothing changes
 
     // Mono and Unison retrigger on every new key; Legato only when coming from silence.
@@ -453,17 +464,18 @@ void Engine::monoUpdate (bool newKeyPressed, float velocity)
         const float position = count > 1 ? 2.0f * (float) i / (float) (count - 1) - 1.0f : 0.0f;
         v.setDetune (spread * position);
         v.setPan (position * patch[PID::PanSpread]);
-        v.start (target, velocity, retrigger, glide, block, heldChannel[(size_t) target]);
+        v.start (target, velocity, retrigger, glide, block, channelOf (targetKey));
         v.setAge (++ageCounter);
     }
     monoNote = target;
+    monoKey = targetKey;
 }
 
-Voice& Engine::allocatePolyVoice (int note)
+Voice& Engine::allocatePolyVoice (int key)
 {
-    // Same note still sounding: reuse its voice
+    // Same note (on the same channel, under MPE) still sounding: reuse its voice
     for (auto& v : voices)
-        if (v.getNote() == note && ! v.isFree())
+        if (voicePlaysKey (v, key) && ! v.isFree())
             return v;
 
     auto oldest = [this] (auto&& predicate) -> Voice*
@@ -509,10 +521,10 @@ Voice& Engine::allocatePolyVoice (int note)
     return *oldest ([] (const Voice&) { return true; });
 }
 
-void Engine::releaseNote (int note)
+void Engine::releaseNote (int key)
 {
     for (auto& v : voices)
-        if (v.isGateOn() && v.getNote() == note)
+        if (v.isGateOn() && voicePlaysKey (v, key))
             v.release();
 }
 
@@ -569,18 +581,18 @@ void Engine::sustainPedal (bool down)
 
     if (mode == VoiceMode::Poly)
     {
-        for (int n = 0; n < 128; ++n)
-            if (sustained[(size_t) n])
+        for (int key = 0; key < maxKeys; ++key)
+            if (sustained[(size_t) key])
             {
-                sustained[(size_t) n] = false;
-                releaseNote (n);
+                sustained[(size_t) key] = false;
+                releaseNote (key);
             }
     }
     else if (heldCount == 0)
     {
         for (int i = 0; i < monoVoiceCount(); ++i)
             voices[(size_t) i].release();
-        monoNote = -1;
+        monoNote = monoKey = -1;
     }
 }
 
@@ -590,7 +602,7 @@ void Engine::allNotesOff()
     notePressure.fill (0.0f);
     heldCount = 0;
     sustained.fill (false);
-    monoNote = -1;
+    monoNote = monoKey = -1;
     for (auto& v : voices)
         v.release();
 }

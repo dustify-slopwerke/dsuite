@@ -765,6 +765,90 @@ TEST_CASE ("Timbre (CC74) is a matrix source, per note under MPE")
 
 namespace
 {
+int gatedVoices (const Engine& engine)
+{
+    int count = 0;
+    for (int i = 0; i < Engine::maxVoices; ++i)
+        count += engine.getVoice (i).isGateOn() ? 1 : 0;
+    return count;
+}
+} // namespace
+
+TEST_CASE ("MPE: the same note on two channels is two voices, released one at a time")
+{
+    auto p = sinePatch();
+    p[PID::VoiceMode] = (float) VoiceMode::Poly;
+    p[PID::MpeMode] = 1.0f;
+
+    SECTION ("poly")
+    {
+        auto engine = makeEngine (p);
+        engine.noteOn (60, 1.0f, 1);
+        engine.noteOn (60, 1.0f, 2);
+        CHECK (gatedVoices (engine) == 2);
+        engine.noteOff (60, 1);
+        CHECK (gatedVoices (engine) == 1); // the other finger is still down
+        engine.noteOff (60, 1);            // a repeated note-off changes nothing
+        CHECK (gatedVoices (engine) == 1);
+        engine.noteOff (60, 2);
+        CHECK (gatedVoices (engine) == 0);
+    }
+
+    SECTION ("with the sustain pedal")
+    {
+        auto engine = makeEngine (p);
+        engine.sustainPedal (true);
+        engine.noteOn (60, 1.0f, 1);
+        engine.noteOn (60, 1.0f, 2);
+        engine.noteOff (60, 1);
+        engine.noteOff (60, 2);
+        CHECK (gatedVoices (engine) == 2);
+        engine.sustainPedal (false);
+        CHECK (gatedVoices (engine) == 0);
+    }
+
+    SECTION ("mono keeps sounding while either is held")
+    {
+        p[PID::VoiceMode] = (float) VoiceMode::Mono;
+        auto engine = makeEngine (p);
+        engine.noteOn (60, 1.0f, 1);
+        engine.noteOn (60, 1.0f, 2);
+        engine.noteOff (60, 2);
+        CHECK (engine.getMonoNote() == 60);
+        CHECK (engine.getVoice (0).isGateOn());
+        CHECK (engine.getVoice (0).getChannel() == 1);
+        engine.noteOff (60, 1);
+        CHECK (engine.getMonoNote() == -1);
+        CHECK (! engine.getVoice (0).isGateOn());
+    }
+
+    SECTION ("dual layers don't leave a stuck note")
+    {
+        auto synth = makeLayers (p, p, LayerMode::Dual);
+        synth.noteOn (60, 1.0f, 1);
+        synth.noteOn (60, 1.0f, 2);
+        synth.noteOff (60, 1);
+        CHECK (gatedVoices (synth.layer (0)) == 1);
+        CHECK (gatedVoices (synth.layer (1)) == 1);
+        synth.noteOff (60, 2);
+        CHECK (gatedVoices (synth.layer (0)) == 0);
+        CHECK (gatedVoices (synth.layer (1)) == 0);
+    }
+
+    SECTION ("without MPE the channels share the note, as before")
+    {
+        p[PID::MpeMode] = 0.0f;
+        auto engine = makeEngine (p);
+        engine.noteOn (60, 1.0f, 1);
+        engine.noteOn (60, 1.0f, 2);
+        CHECK (gatedVoices (engine) == 1);
+        engine.noteOff (60, 2);
+        CHECK (gatedVoices (engine) == 0);
+    }
+}
+
+namespace
+{
 // Pitch (cents from `reference`) over consecutive windows of a rendered mono signal
 std::vector<double> pitchTrack (const std::vector<float>& x, double reference, double window, double from = 0.0, double to = 0.0)
 {
