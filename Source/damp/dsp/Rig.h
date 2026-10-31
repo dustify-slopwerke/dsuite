@@ -53,11 +53,27 @@ public:
 
     // In place. right == nullptr: mono in and out. monoInput with right != nullptr: the input is
     // in left only, and right receives the stereo output. A stereo input (! monoInput) goes in as
-    // the patch's InputMode says: one channel (or the two summed) as a mono input, or both.
-    void process (float* left, float* right, int n, bool monoInput);
+    // the patch's InputMode says (selectInput): one channel (or the two summed) as a mono input,
+    // or both.
+    void process (float* left, float* right, int n, bool monoInput)
+    {
+        if (right != nullptr && ! monoInput)
+            monoInput = selectInput (inputMode, left, right, n);
+        processSelected (left, right, n, monoInput);
+    }
 
-    // A stereo input to the mono one `mode` picks, into left; false for Stereo (left as it was)
-    static bool toMono (InputMode mode, float* left, const float* right, int n);
+    // A stereo input to the mono one `mode` picks, into left (true), or left as it was for
+    // Stereo (false). A change of channel crossfades the left over 20 ms. For callers that need
+    // the selected input before the rig (meter, tuner): then processSelected with its result.
+    bool selectInput (InputMode mode, float* left, const float* right, int n);
+    // process() after selectInput. Going in and out of Stereo is click-free: entering it, the
+    // right amp and cab first run on the right input for `rightWarmMs` while the right output
+    // still copies the left (flushing whatever state they kept from before), then the right
+    // crossfades to them over `rightFadeMs`; leaving it, the right crossfades back to the left's
+    // copy, the right chain still running on `right` meanwhile, so with monoInput `right` should
+    // still hold the right input when there is one (with a mono input bus there's never a switch).
+    void processSelected (float* left, float* right, int n, bool monoInput);
+    static constexpr double rightWarmMs = 50.0, rightFadeMs = 20.0, inputFadeMs = 20.0;
 
     // After the level, before the metronome and master output (see Looper for its threads)
     Looper& looper() { return loops; }
@@ -72,6 +88,17 @@ private:
     std::array<dustify::Convolver, 2> cab;
     bool rightCabIdle = false; // the right cab sat out a mono block: it catches up when next used
     InputMode inputMode = InputMode::Left;
+
+    // The input selector: the mode the left now follows (Stereo reads as Left) and the one it
+    // fades from (fade < 1)
+    bool inputKnown = false;
+    InputMode inputNow = InputMode::Left, inputBefore = InputMode::Left;
+    float inputFade = 1.0f, inputStep = 0.001f;
+    // The right side as heard: 0 the left's copy, 1 its own amp and cab (see processSelected).
+    // rightFresh: both sides were reset and nothing ran since, so Stereo can start at once.
+    float rightMix = 0.0f, rightStep = 0.001f;
+    int rightWarm = 0, rightWarmFrames = 2400;
+    bool rightFresh = true;
     double rate = 48000.0;
     float smoothing = 1.0f;
     dustify::Smoother outputGain, masterGain;

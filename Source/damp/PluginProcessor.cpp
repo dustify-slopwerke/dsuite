@@ -455,7 +455,7 @@ void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     {
         const float choice = rawParams[(size_t) damp::PID::InputMode]->load (std::memory_order_relaxed);
         const auto mode = (damp::InputMode) juce::jlimit (0, 3, (int) std::lround (choice));
-        if (damp::Rig::toMono (mode, buffer.getWritePointer (0), buffer.getReadPointer (1), numSamples))
+        if (rig.selectInput (mode, buffer.getWritePointer (0), buffer.getReadPointer (1), numSamples))
             numInputs = 1;
     }
 
@@ -502,7 +502,9 @@ void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     rig.setBoard (readBoard());
     auto* left = buffer.getWritePointer (0);
     auto* right = buffer.getNumChannels() >= 2 ? buffer.getWritePointer (1) : nullptr;
-    rig.process (left, right, numSamples, numInputs < 2); // a mono input can come out stereo
+    // A mono input can come out stereo; the input is selected already (with Left / Right / Sum,
+    // the right channel still holds its input, for the right side's fade out of Stereo)
+    rig.processSelected (left, right, numSamples, numInputs < 2);
 
     if (tuning && tunerMute.load (std::memory_order_relaxed))
         buffer.clear();

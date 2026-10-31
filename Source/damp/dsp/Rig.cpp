@@ -37,6 +37,9 @@ void Rig::prepare (double sampleRate, int maxImpulseLength)
     rate = sampleRate;
     smoothing = dustify::Smoother::coefficient (0.02, rate);
     dipStep = (float) (1.0 / (0.003 * rate)); // 3 ms each way
+    inputStep = (float) (1.0 / (inputFadeMs * 0.001 * rate));
+    rightStep = (float) (1.0 / (rightFadeMs * 0.001 * rate));
+    rightWarmFrames = std::max (1, (int) std::lround (rightWarmMs * 0.001 * rate));
     amp.prepare (rate);
     loops.prepare (rate); // keeps its loops
     metronome.prepare (rate);
@@ -58,6 +61,11 @@ void Rig::reset()
         boardPending = false;
     }
     dip = 1.0f;
+    inputKnown = false;
+    inputFade = 1.0f;
+    rightMix = 0.0f;
+    rightWarm = 0;
+    rightFresh = true;
     outputGain.snap();
     masterGain.snap();
     metronome.reset();
@@ -81,26 +89,62 @@ bool Rig::cabSwitching() const
     return cab[0].isSwitching() || (! rightCabIdle && cab[1].isSwitching());
 }
 
-bool Rig::toMono (InputMode mode, float* left, const float* right, int n)
+namespace
 {
-    switch (mode)
+// What the left carries in each mode (Stereo: its own channel, as Left)
+InputMode leftSource (InputMode m) { return m == InputMode::Stereo ? InputMode::Left : m; }
+
+float selected (InputMode m, float l, float r)
+{
+    switch (m)
     {
-        case InputMode::Left: return true;
-        case InputMode::Right: std::copy_n (right, n, left); return true;
-        case InputMode::Sum:
-            for (int i = 0; i < n; ++i)
-                left[i] = 0.5f * (left[i] + right[i]);
-            return true;
+        case InputMode::Right: return r;
+        case InputMode::Sum: return 0.5f * (l + r);
+        case InputMode::Left:
         case InputMode::Stereo: break;
     }
-    return false;
+    return l;
+}
+} // namespace
+
+bool Rig::selectInput (InputMode mode, float* left, const float* right, int n)
+{
+    const auto wanted = leftSource (mode);
+    if (! inputKnown)
+    {
+        inputNow = wanted; // the first block: as it is
+        inputKnown = true;
+    }
+    else if (wanted != inputNow)
+    {
+        inputBefore = inputNow;
+        inputNow = wanted;
+        inputFade = 0.0f;
+    }
+    if (inputFade < 1.0f)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            inputFade = std::min (1.0f, inputFade + inputStep);
+            const float from = selected (inputBefore, left[i], right[i]), to = selected (inputNow, left[i], right[i]);
+            left[i] = from + (to - from) * inputFade;
+        }
+    }
+    else if (inputNow == InputMode::Right)
+    {
+        std::copy_n (right, n, left);
+    }
+    else if (inputNow == InputMode::Sum)
+    {
+        for (int i = 0; i < n; ++i)
+            left[i] = 0.5f * (left[i] + right[i]);
+    }
+    return mode != InputMode::Stereo;
 }
 
-void Rig::process (float* left, float* right, int n, bool monoInput)
+void Rig::processSelected (float* left, float* right, int n, bool monoInput)
 {
     dustify::ScopedFlushDenormals noDenormals;
-    if (right != nullptr && ! monoInput)
-        monoInput = toMono (inputMode, left, right, n);
     for (int done = 0; done < n;)
     {
         const int chunk = std::min (n - done, Board::maxBlock);
@@ -111,8 +155,21 @@ void Rig::process (float* left, float* right, int n, bool monoInput)
 
 void Rig::processChunk (float* left, float* right, int n, bool monoInput)
 {
-    // Amp and cab: on the left only when the input is mono
-    const bool stereoAmp = right != nullptr && ! monoInput;
+    // Amp and cab: on the left only when the input is mono, on the right too while the right side
+    // warms up, is heard or fades out (see processSelected)
+    const bool stereoIn = right != nullptr && ! monoInput;
+    if (stereoIn && rightMix <= 0.0f && rightWarm == 0)
+    {
+        // Into Stereo: from a reset both sides are alike, so at once; else warm the right up first
+        if (rightFresh)
+            rightMix = 1.0f;
+        else
+            rightWarm = rightWarmFrames;
+    }
+    if (! stereoIn)
+        rightWarm = 0;
+    rightFresh = false;
+    const bool stereoAmp = right != nullptr && (stereoIn || rightMix > 0.0f);
     amp.process (left, stereoAmp ? right : nullptr, n);
     cab[0].process (left, n);
     if (stereoAmp)
@@ -125,6 +182,17 @@ void Rig::processChunk (float* left, float* right, int n, bool monoInput)
             rightCabIdle = false;
         }
         cab[1].process (right, n);
+
+        // Warming up, fading in or out: the right between the left's copy and its own
+        if (rightMix < 1.0f || ! stereoIn)
+            for (int i = 0; i < n; ++i)
+            {
+                if (! stereoIn)
+                    rightMix = std::max (0.0f, rightMix - rightStep);
+                else if (rightWarm == 0 || --rightWarm == 0)
+                    rightMix = std::min (1.0f, rightMix + rightStep);
+                right[i] = left[i] + rightMix * (right[i] - left[i]);
+            }
     }
     else
     {

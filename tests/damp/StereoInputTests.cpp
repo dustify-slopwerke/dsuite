@@ -248,3 +248,78 @@ TEST_CASE ("input: Stereo runs each channel through its own amp", "[rig][input]"
         CHECK (correlation (a, b) > 0.99);
     }
 }
+
+namespace
+{
+float biggestStep (const std::vector<float>& x, size_t from, size_t to)
+{
+    float m = 0.0f;
+    for (size_t i = std::max<size_t> (from, 1); i < to; ++i)
+        m = std::max (m, std::abs (x[i] - x[i - 1]));
+    return m;
+}
+
+std::vector<float> slice (const std::vector<float>& x, size_t from, size_t to)
+{
+    return { x.begin() + (std::ptrdiff_t) from, x.begin() + (std::ptrdiff_t) to };
+}
+} // namespace
+
+TEST_CASE ("input: switching in and out of Stereo, or between channels, while playing doesn't click", "[rig][input]")
+{
+    // Different sounds on the two inputs, so every switch changes what's heard
+    const auto left = tone (220.0, 0.1), right = tone (330.0, 0.08);
+    struct Switch
+    {
+        InputMode from, to;
+    };
+    for (const auto [from, to] : { Switch { InputMode::Left, InputMode::Stereo }, Switch { InputMode::Sum, InputMode::Stereo },
+                                   Switch { InputMode::Right, InputMode::Stereo }, Switch { InputMode::Stereo, InputMode::Left },
+                                   Switch { InputMode::Stereo, InputMode::Right }, Switch { InputMode::Left, InputMode::Right },
+                                   Switch { InputMode::Right, InputMode::Sum } })
+    {
+        INFO ((int) from << " -> " << (int) to);
+        // Stereo first, so the right amp keeps state from then, then a while in `from`, then `to`
+        StereoRig rig (InputMode::Stereo, { { PID::ChorusOn, 0.0f }, { PID::Gain, 6.0f } });
+        const size_t third = left.size() / 3;
+        std::vector<float> l, r;
+        const auto part = [&] (InputMode mode, size_t a, size_t b)
+        {
+            rig.patch[PID::InputMode] = (float) mode;
+            const auto [pl, pr] = rig.run (slice (left, a, b), slice (right, a, b));
+            l.insert (l.end(), pl.begin(), pl.end());
+            r.insert (r.end(), pr.begin(), pr.end());
+        };
+        part (InputMode::Stereo, 0, third);
+        part (from, third, 2 * third);
+        part (to, 2 * third, left.size());
+
+        // The steps around the switch are no bigger than the signal's own, before and after it, but
+        // for the slope of the 20 ms crossfade between two different sounds (a click: 100 times more)
+        const size_t at = 2 * third, settle = 3600; // 75 ms
+        for (const auto* x : { &l, &r })
+        {
+            const float before = biggestStep (*x, at - settle, at), after = biggestStep (*x, at + settle, at + 2 * settle);
+            const float around = biggestStep (*x, at - 64, at + settle);
+            INFO ((x == &l ? "left" : "right") << ": before " << before << ", around " << around << ", after " << after);
+            CHECK (around <= 1.5f * std::max (before, after));
+        }
+    }
+}
+
+TEST_CASE ("input: after switching to Stereo the right side is its own amp's", "[rig][input]")
+{
+    const auto left = tone (220.0, 0.1), right = tone (330.0, 0.08);
+    StereoRig fresh (InputMode::Stereo, { { PID::ChorusOn, 0.0f } });
+    const auto [fl, fr] = fresh.run (left, right);
+
+    StereoRig rig (InputMode::Left, { { PID::ChorusOn, 0.0f } });
+    const size_t half = left.size() / 2, end = left.size();
+    rig.run (slice (left, 0, half), slice (right, 0, half));
+    rig.patch[PID::InputMode] = (float) InputMode::Stereo;
+    const auto [l, r] = rig.run (slice (left, half, end), slice (right, half, end));
+    // 100 ms on (warmed up and faded in), both sides are a rig's that was in Stereo throughout
+    const size_t skip = 4800;
+    CHECK (correlation (slice (r, skip, r.size()), slice (fr, half + skip, end)) > 0.999);
+    CHECK (correlation (slice (l, skip, l.size()), slice (fl, half + skip, end)) > 0.999);
+}

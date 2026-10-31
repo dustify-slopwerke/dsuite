@@ -13,7 +13,10 @@ With a stereo input, **Input** (header) picks what goes in: **Left** (default), 
 interface presents one guitar input on both channels. **Stereo** runs two amps, one per
 channel, keyed by one noise gate. The Octave and Pitch Shifter track the left channel and apply
 the same octaves and splices to both, so a mono source on both channels stays mono. Input is
-saved with the session, not in presets. A mono input ignores it.
+saved with the session, not in presets. A mono input ignores it. Changing it while playing is
+click-free: a change of channel crossfades over 20 ms; switching to Stereo first runs the right
+amp and cab for 50 ms (out of earshot, to flush what they kept from before), then fades the
+right side in over 20 ms; leaving Stereo fades it back to the left's copy.
 
 ## Signal chain
 
