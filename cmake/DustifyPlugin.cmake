@@ -12,6 +12,8 @@
 #   <name>_presets         factory presets as binary data
 #   <name>_ui_snapshot     paints every editor tab to PNG, no window (EXCLUDE_FROM_ALL)
 #   <name>_plugin_checks   state / value-text round trips, run by ctest as <name>_plugin_checks
+#   <name>_stress          random rates / blocks / MIDI / state restores, for sanitizer builds
+#                          (EXCLUDE_FROM_ALL)
 #
 # JUCE modules are compiled into each target that links them, so the plugin's sources (and the
 # shared UI) are compiled into the plugin and both tools rather than into a shared library.
@@ -79,7 +81,7 @@ function(dustify_add_plugin NAME)
     endif()
 
     # Headless tools: the plugin's code in a console app
-    foreach(tool ui_snapshot plugin_checks)
+    foreach(tool ui_snapshot plugin_checks stress)
         set(target ${NAME}_${tool})
         juce_add_console_app(${target} PRODUCT_NAME "${target}")
         target_sources(${target} PRIVATE ${DUSTIFY_TOOLS_DIR}/${tool}.cpp ${ARG_SOURCES} ${DUSTIFY_UI_SOURCES})
@@ -96,7 +98,9 @@ function(dustify_add_plugin NAME)
             juce::juce_recommended_config_flags
             juce::juce_recommended_warning_flags)
     endforeach()
-    set_target_properties(${NAME}_ui_snapshot PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    set_target_properties(${NAME}_ui_snapshot ${NAME}_stress PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    string(TOUPPER ${NAME} upper_name)
+    target_compile_definitions(${NAME}_stress PRIVATE DUSTIFY_STRESS_${upper_name}=1)
     target_compile_definitions(${NAME}_ui_snapshot PRIVATE ${ARG_SNAPSHOT_DEFINITIONS})
     target_compile_definitions(${NAME}_plugin_checks PRIVATE ${ARG_CHECKS_DEFINITIONS})
 
