@@ -306,7 +306,8 @@ void DsynthAudioProcessor::setStateInformation (const void* data, int sizeInByte
     {
         layerText = layers->getStringAttribute ("text").toStdString();
         edit = juce::jlimit (0, 1, layers->getIntAttribute ("edit"));
-        uiScale = juce::jlimit (0.6f, 2.0f, (float) layers->getDoubleAttribute ("uiScale", 1.0));
+        const auto scale = (float) layers->getDoubleAttribute ("uiScale", 1.0);
+        uiScale = std::isnan (scale) ? 1.0f : juce::jlimit (0.6f, 2.0f, scale); // jlimit passes NaN on
         xml->removeChildElement (layers, true);
     }
 

@@ -273,7 +273,8 @@ void DpianoAudioProcessor::setStateInformation (const void* data, int sizeInByte
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
         return;
 
-    uiScale = juce::jlimit (0.6f, 2.0f, (float) xml->getDoubleAttribute ("uiScale", 1.0));
+    const auto scale = (float) xml->getDoubleAttribute ("uiScale", 1.0);
+    uiScale = std::isnan (scale) ? 1.0f : juce::jlimit (0.6f, 2.0f, scale); // jlimit passes NaN on
     xml->removeAttribute ("uiScale");
     juce::String presetName;
     dustify::readPresetSelection (*xml, getNumPrograms(), currentProgram, presetName);

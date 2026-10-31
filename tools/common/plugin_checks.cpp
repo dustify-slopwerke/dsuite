@@ -176,6 +176,12 @@ void checkNonFiniteState()
                         line = line.upToFirstOccurrenceOf ("=", true, false) + " " + bad;
                 e->setAttribute ("text", lines.joinIntoString ("\n"));
             }
+        // and the editor's zoom
+        if (damaged->hasAttribute ("uiScale"))
+            damaged->setAttribute ("uiScale", bad);
+        for (auto* e : damaged->getChildIterator())
+            if (e->hasAttribute ("uiScale"))
+                e->setAttribute ("uiScale", bad);
         juce::MemoryBlock blob;
         juce::AudioProcessor::copyXmlToBinary (*damaged, blob);
 
@@ -188,6 +194,20 @@ void checkNonFiniteState()
                 fail (juce::String ("state with '") + bad + "' values: " + p->getName (64) + " is " + juce::String (p->getValue()));
                 break;
             }
+
+        juce::MemoryBlock resaved;
+        plugin->getStateInformation (resaved);
+        if (auto again = juce::AudioProcessor::getXmlFromBinary (resaved.getData(), (int) resaved.getSize()))
+        {
+            auto checkScale = [&] (const juce::XmlElement& e)
+            {
+                if (const double scale = e.getDoubleAttribute ("uiScale", 1.0); ! (scale >= 0.5 && scale <= 2.0))
+                    fail (juce::String ("state with '") + bad + "' values: the editor scale restores as " + e.getStringAttribute ("uiScale"));
+            };
+            checkScale (*again);
+            for (auto* e : again->getChildIterator())
+                checkScale (*e);
+        }
 
         juce::AudioBuffer<float> buffer (2, 512);
         juce::MidiBuffer midi;
