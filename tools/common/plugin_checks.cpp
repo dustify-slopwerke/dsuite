@@ -8,6 +8,7 @@
  #include <juce_audio_formats/juce_audio_formats.h>
  #include "PluginProcessor.h"
  #include "dsp/PitchDetector.h"
+ #include "common/plugin/ParamLayout.h"
 #endif
 #if DUSTIFY_CHECKS_DPIANO
  #include "PluginProcessor.h"
@@ -390,6 +391,129 @@ void checkVelocityCalibration()
         fail ("velocity capture: played velocities aren't reported");
 
     settings.deleteFile(); // the fixture checks expect no calibration
+}
+#endif
+
+#if DUSTIFY_CHECKS_DAMP
+// damp's MIDI control through the processor: Program Change and mapped CCs from processBlock,
+// the host parameter following (from the message thread), and the mappings kept machine-wide
+// and in the session (which wins). The DSP side is tested in tests/damp/MidiControlTests.cpp.
+void checkMidiControl()
+{
+    namespace dm = damp::midi;
+    const auto settingsFile = DampAudioProcessor::settingsFile();
+    settingsFile.deleteFile();
+
+    // The DSP's normalisation matches the host parameters'
+    {
+        DampAudioProcessor p;
+        for (const auto& info : damp::allParams())
+            if (auto* param = p.apvts.getParameter (dustify::toJuce (info.id)))
+                for (int i = 0; i <= 20; ++i)
+                {
+                    const float x = (float) i / 20.0f;
+                    const float juceValue = param->convertFrom0to1 (x), ours = dm::fromNormalised (info, x);
+                    if (std::abs (juceValue - ours) > 1.0e-4f * (info.max - info.min) + 1.0e-6f
+                        || std::abs (param->convertTo0to1 (juceValue) - dm::toNormalised (info, juceValue)) > 1.0e-4f)
+                    {
+                        fail ("midi: " + dustify::toJuce (info.id) + " at " + juce::String (x) + ": JUCE " + juce::String (juceValue)
+                              + ", ours " + juce::String (ours));
+                        break;
+                    }
+                }
+    }
+
+    auto block = [] (DampAudioProcessor& p, std::initializer_list<juce::MidiMessage> messages)
+    {
+        juce::AudioBuffer<float> buffer (2, 256);
+        buffer.clear();
+        juce::MidiBuffer midiIn;
+        int at = 0;
+        for (const auto& m : messages)
+            midiIn.addEvent (m, at++);
+        p.processBlock (buffer, midiIn);
+        p.serviceMidi();
+    };
+    auto value = [] (DampAudioProcessor& p, const char* id) { return p.apvts.getParameter (id)->getValue(); };
+
+    DampAudioProcessor a;
+    a.prepareToPlay (48000.0, 256);
+    if (! a.acceptsMidi())
+        fail ("midi: damp doesn't accept MIDI");
+
+    // Program change (and bank select past the list: ignored)
+    block (a, { juce::MidiMessage::programChange (1, 3) });
+    if (a.getCurrentProgram() != 3 || a.getCurrentPresetName() != a.getProgramName (3))
+        fail ("midi: program change 3 gave program " + juce::String (a.getCurrentProgram()) + " (" + a.getCurrentPresetName() + ")");
+    block (a, { juce::MidiMessage::controllerEvent (1, 0, 0), juce::MidiMessage::controllerEvent (1, 32, 0),
+                juce::MidiMessage::programChange (1, 1) });
+    if (a.getCurrentProgram() != 1)
+        fail ("midi: bank 0 program 1 gave program " + juce::String (a.getCurrentProgram()));
+    block (a, { juce::MidiMessage::controllerEvent (1, 0, 100), juce::MidiMessage::programChange (1, 5) });
+    if (a.getCurrentProgram() != 1)
+        fail ("midi: a program past the list changed the preset");
+    block (a, { juce::MidiMessage::controllerEvent (1, 0, 0) });
+    // Next preset
+    a.getMidi().addMapping ({ { dm::Source::Type::Note, 10, 36 }, dm::Target::command (dm::Command::PresetNext) });
+    block (a, { juce::MidiMessage::noteOn (10, 36, (juce::uint8) 100) });
+    if (a.getCurrentProgram() != 2 || a.presetListPosition() != 2)
+        fail ("midi: next preset gave program " + juce::String (a.getCurrentProgram()));
+
+    // A mapped CC: heard at once, the host parameter follows from the message thread
+    a.getMidi().addMapping ({ { dm::Source::Type::Cc, 1, 11 }, dm::Target::param (damp::PID::WahPosition) });
+    block (a, { juce::MidiMessage::controllerEvent (1, 11, 127) });
+    if (std::abs (value (a, "wah_position") - 1.0f) > 1.0e-6f)
+        fail ("midi: CC 11 = 127 left wah_position at " + juce::String (value (a, "wah_position")));
+    // Learning, through the processor (and the settings file); a momentary footswitch
+    a.getMidi().learn (dm::Target::param (damp::PID::DelayOn));
+    const float delayBefore = value (a, "delay_on");
+    block (a, { juce::MidiMessage::controllerEvent (2, 64, 127) });
+    block (a, { juce::MidiMessage::controllerEvent (2, 64, 0) });
+    if (a.getMidi().mappingsFor (dm::Target::param (damp::PID::DelayOn)).size() != 1 || value (a, "delay_on") < 0.0f
+        || std::abs (value (a, "delay_on") - delayBefore) > 0.0f)
+        fail ("midi: learning delay_on didn't map CC 64 (or it acted)");
+    block (a, { juce::MidiMessage::controllerEvent (2, 64, 127) });
+    block (a, { juce::MidiMessage::controllerEvent (2, 64, 0) });
+    if (std::abs (value (a, "delay_on") - (1.0f - delayBefore)) > 0.0f)
+        fail ("midi: a footswitch press didn't switch the delay");
+    if (! settingsFile.existsAsFile() || DampAudioProcessor::loadMachineMidiSettings() != a.getMidi().settings())
+        fail ("midi: learning didn't save the machine-wide settings");
+
+    // New instances use the machine's; the session's win when it has them
+    const auto machine = a.getMidi().settings();
+    DampAudioProcessor b;
+    if (b.getMidi().settings() != machine)
+        fail ("midi: a new instance doesn't load the machine's mappings");
+    dm::Settings session;
+    session.channel = 5;
+    session.programChange = false;
+    session.mappings = { { { dm::Source::Type::Note, 5, 40 }, dm::Target::command (dm::Command::LooperRec) },
+                         { { dm::Source::Type::Cc, 5, 80 }, dm::Target::param (damp::PID::ReverbOn), dm::SwitchMode::Latching } };
+    b.setMidiSettings (session, false);
+    if (DampAudioProcessor::loadMachineMidiSettings() != machine)
+        fail ("midi: applying settings to one instance wrote the settings file");
+    juce::MemoryBlock state;
+    b.getStateInformation (state);
+    DampAudioProcessor c;
+    c.setStateInformation (state.getData(), (int) state.getSize());
+    if (c.getMidi().settings() != session)
+        fail ("midi: the session's mappings didn't win over the machine's");
+    juce::MemoryBlock again;
+    c.getStateInformation (again);
+    if (again != state)
+        fail ("midi: a session with mappings doesn't re-save byte for byte");
+    // A session from before MIDI control: the machine's
+    auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+    if (xml == nullptr || xml->getChildByName ("MIDI") == nullptr)
+        return fail ("midi: no MIDI element in the session");
+    xml->deleteAllChildElementsWithTagName ("MIDI");
+    juce::MemoryBlock old;
+    juce::AudioProcessor::copyXmlToBinary (*xml, old);
+    c.setStateInformation (old.getData(), (int) old.getSize());
+    if (c.getMidi().settings() != machine)
+        fail ("midi: an old session doesn't use the machine's mappings");
+
+    settingsFile.deleteFile(); // the fixture checks expect none
 }
 #endif
 
@@ -820,15 +944,14 @@ int main (int argc, char** argv)
     checkStateRoundTrip (true);
     checkTextRoundTrips();
     checkProgramInState();
-#if ! DUSTIFY_CHECKS_DAMP // damp doesn't strip NaN values from its state yet
     checkNonFiniteState();
-#endif
 #if DUSTIFY_CHECKS_DAMP
     checkImpulseInState();
     checkBoardOrder();
     checkTuner();
     checkLoopsInState();
     checkOldSessionMigration();
+    checkMidiControl();
 #endif
 #if DUSTIFY_CHECKS_DPIANO
     checkVelocityCalibration();

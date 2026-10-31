@@ -2,7 +2,7 @@
 #
 #   dustify_add_plugin(<name>
 #       PLUGIN_CODE Dsyn  LV2URI https://...  CLAP_ID com.dustify.<name>  CLAP_FEATURES instrument ...
-#       [IS_SYNTH]  PRESETS <files...>  SOURCES <plugin .cpp files...>  DSP_LIB <name>_dsp
+#       [IS_SYNTH]  [MIDI_INPUT]  PRESETS <files...>  SOURCES <plugin .cpp files...>  DSP_LIB <name>_dsp
 #       [SNAPSHOT_DEFINITIONS <defs...>]  [CHECKS_DEFINITIONS <defs...>]
 #       [STATE_FIXTURE tests/fixtures/<name>_state_v1.bin])
 #
@@ -27,13 +27,19 @@ set(DUSTIFY_UI_SOURCES
 set(DUSTIFY_TOOLS_DIR ${CMAKE_CURRENT_LIST_DIR}/../tools/common)
 
 function(dustify_add_plugin NAME)
-    cmake_parse_arguments(ARG "IS_SYNTH" "PLUGIN_CODE;LV2URI;CLAP_ID;DSP_LIB;STATE_FIXTURE"
+    cmake_parse_arguments(ARG "IS_SYNTH;MIDI_INPUT" "PLUGIN_CODE;LV2URI;CLAP_ID;DSP_LIB;STATE_FIXTURE"
                           "CLAP_FEATURES;PRESETS;SOURCES;SNAPSHOT_DEFINITIONS;CHECKS_DEFINITIONS" ${ARGN})
 
     if(ARG_IS_SYNTH)
         set(is_synth TRUE)
     else()
         set(is_synth FALSE)
+    endif()
+    # Synths take notes; an effect may take MIDI too (damp: MIDI control)
+    if(ARG_IS_SYNTH OR ARG_MIDI_INPUT)
+        set(midi_input TRUE)
+    else()
+        set(midi_input FALSE)
     endif()
 
     juce_add_binary_data(${NAME}_presets SOURCES ${ARG_PRESETS})
@@ -47,7 +53,7 @@ function(dustify_add_plugin NAME)
         PLUGIN_MANUFACTURER_CODE Dsty
         PLUGIN_CODE ${ARG_PLUGIN_CODE}
         IS_SYNTH ${is_synth}
-        NEEDS_MIDI_INPUT ${is_synth}
+        NEEDS_MIDI_INPUT ${midi_input}
         NEEDS_MIDI_OUTPUT FALSE
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS ${is_synth}

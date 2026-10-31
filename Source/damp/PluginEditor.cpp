@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "common/plugin/ParamLayout.h"
+#include "ui/MidiTags.h"
 
 DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
     : AudioProcessorEditor (&p),
@@ -8,6 +9,7 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
       presets (p),
       pedalboard (p),
       looperView (p),
+      midiPanel (p),
       tuner (p)
 {
     using enum damp::PID;
@@ -41,6 +43,7 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
     tabs.addTab ("Amp", tabColour, &ampTab, false);
     tabs.addTab ("Pedals", tabColour, &pedalViewport, false);
     tabs.addTab ("Looper", tabColour, &looperView, false);
+    tabs.addTab ("MIDI", tabColour, &midiPanel, false);
     tabs.setTabBarDepth (28);
     tabs.setOutline (0);
     tabs.getTabbedButtonBar().dispatchPendingMessages();
@@ -57,6 +60,20 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
     tunerButton.setTooltip ("Chromatic tuner (mutes the output while open, unless you turn that off)");
     tunerButton.onClick = [this] { tuner.setVisible (tunerButton.getToggleState()); };
     content.addAndMakeVisible (tunerButton);
+    tunerTogglesSeen = processor.tunerToggleCount();
+    damp::ui::setMidiTarget (tunerButton, "cmd:tuner");
+    damp::ui::setMidiTarget (presets, "cmd:preset_previous|cmd:preset_next");
+
+    learnButton.setComponentID ("midiLearn");
+    learnButton.setClickingTogglesState (true);
+    learnButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe0505a).withAlpha (0.6f));
+    learnButton.setTooltip ("MIDI Learn: click a control, then move a knob or press a pad or footswitch on your controller. "
+                            "Right-click a control to forget its mapping. The MIDI tab lists them all.");
+    learnButton.onClick = [this] { setLearnMode (learnButton.getToggleState()); };
+    content.addAndMakeVisible (learnButton);
+    midiLight.setTooltip ("MIDI in");
+    content.addAndMakeVisible (midiLight);
+    midiActivitySeen = processor.getMidi().activity();
     inputMeter.setSweetSpot (-18.0f, -6.0f);
     inputMeter.setTooltip ("Input level. Hard picking should peak in the shaded range: set your interface (or Input) so it does.");
     outputMeter.setTooltip ("Output level");
@@ -93,6 +110,8 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
     master.setTooltip ("What you hear: live sound and loops. Not saved in presets.");
     masterLabel.setTooltip (master.getTooltip());
     content.addAndMakeVisible (master);
+    damp::ui::setMidiTarget (master, dustify::toJuce (damp::paramInfo (MasterOutput).id));
+    damp::ui::setMidiTarget (inputMode, dustify::toJuce (damp::paramInfo (InputMode).id));
     masterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         processor.apvts, dustify::toJuce (damp::paramInfo (MasterOutput).id), master);
     master.setDoubleClickReturnValue (true, 0.0);
@@ -117,6 +136,7 @@ DampAudioProcessorEditor::DampAudioProcessorEditor (DampAudioProcessor& p)
 DampAudioProcessorEditor::~DampAudioProcessorEditor()
 {
     stopTimer();
+    learnOverlay.reset();
     setLookAndFeel (nullptr);
     tabs.getTabbedButtonBar().dispatchPendingMessages();
 }
@@ -139,15 +159,18 @@ void DampAudioProcessorEditor::layoutContent()
 
     auto top = area.removeFromTop (36);
     title.setBounds (top.removeFromLeft (90));
-    presets.setBounds (top.removeFromRight (420));
+    presets.setBounds (top.removeFromRight (360));
     tunerButton.setBounds (top.removeFromLeft (72).reduced (0, 4));
-    top.removeFromLeft (8);
+    top.removeFromLeft (6);
+    learnButton.setBounds (top.removeFromLeft (58).reduced (0, 4));
+    midiLight.setBounds (top.removeFromLeft (14).withSizeKeepingCentre (10, 10).translated (2, 0));
+    top.removeFromLeft (4);
     inputLabel.setBounds (top.removeFromLeft (40));
     top.removeFromLeft (4);
     inputMode.setBounds (top.removeFromLeft (84).reduced (0, 6));
     top.removeFromLeft (12);
     top.removeFromRight (12);
-    master.setBounds (top.removeFromRight (150).reduced (0, 7));
+    master.setBounds (top.removeFromRight (130).reduced (0, 7));
     masterLabel.setBounds (top.removeFromRight (52));
     auto meters = top.reduced (0, 2);
     inputMeter.setBounds (meters.removeFromTop (meters.getHeight() / 2).withTrimmedRight (4));
@@ -156,6 +179,8 @@ void DampAudioProcessorEditor::layoutContent()
 
     tabs.setBounds (area);
     tuner.setBounds (area.withSizeKeepingCentre (620, 300));
+    if (learnOverlay != nullptr)
+        learnOverlay->setBounds (content.getLocalBounds());
     const auto inside = tabs.getTabbedButtonBar().getBounds().getHeight();
     page->setBounds (0, 0, area.getWidth(), area.getHeight() - inside);
     pedalboard.refresh (area.getWidth() - pedalViewport.getScrollBarThickness());
@@ -179,6 +204,27 @@ void DampAudioProcessorEditor::timerCallback()
     tuner.update (seconds);
     inputMode.setEnabled (processor.getTotalNumInputChannels() >= 2);
     looperView.update();
+    midiPanel.update();
+
+    // MIDI: the activity light, the tuner a footswitch toggled, learn mode
+    if (const auto activity = processor.getMidi().activity(); activity != midiActivitySeen)
+    {
+        midiActivitySeen = activity;
+        midiLight.level = 1.0f;
+        midiLight.repaint();
+    }
+    else if (midiLight.level > 0.0f)
+    {
+        midiLight.level = juce::jmax (0.0f, midiLight.level - seconds * 4.0f);
+        midiLight.repaint();
+    }
+    if (const int toggles = processor.tunerToggleCount(); toggles != tunerTogglesSeen)
+    {
+        tunerTogglesSeen = toggles;
+        tunerButton.setToggleState (! tunerButton.getToggleState(), juce::sendNotificationSync);
+    }
+    if (learnOverlay != nullptr)
+        learnOverlay->update();
     updateRelevance();
     pedalboard.refresh (pedalViewport.getWidth() - pedalViewport.getScrollBarThickness()); // a preset may have moved pedals
 
@@ -218,4 +264,33 @@ void DampAudioProcessorEditor::chooseImpulse()
                                   juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Load IR", error);
                               safe->timerCallback();
                           });
+}
+
+void DampAudioProcessorEditor::setLearnMode (bool on)
+{
+    learnButton.setToggleState (on, juce::dontSendNotification);
+    if (! on)
+    {
+        processor.getMidi().cancelLearn();
+        learnOverlay.reset();
+        return;
+    }
+    if (learnOverlay == nullptr)
+    {
+        learnOverlay = std::make_unique<MidiLearnOverlay> (processor, content);
+        content.addAndMakeVisible (*learnOverlay);
+        learnOverlay->setBounds (content.getLocalBounds());
+    }
+    learnOverlay->toFront (false);
+    learnOverlay->update();
+}
+
+void DampAudioProcessorEditor::ActivityLight::paint (juce::Graphics& g)
+{
+    const auto r = getLocalBounds().toFloat().reduced (1.0f);
+    const auto on = juce::Colour (DustifyLookAndFeel::Palette::envelope);
+    g.setColour (juce::Colour (DustifyLookAndFeel::Palette::control).interpolatedWith (on, level));
+    g.fillEllipse (r);
+    g.setColour (juce::Colour (DustifyLookAndFeel::Palette::panelEdge));
+    g.drawEllipse (r, 1.0f);
 }

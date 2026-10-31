@@ -175,6 +175,7 @@ add_library(damp_dsp STATIC
     Source/damp/dsp/AmpModels.cpp
     Source/damp/dsp/Cabinet.cpp
     Source/damp/dsp/Metronome.cpp
+    Source/damp/dsp/MidiControl.cpp
     Source/damp/dsp/Params.cpp
     Source/damp/dsp/PitchDetector.cpp
     Source/damp/dsp/Preset.cpp
@@ -201,6 +202,7 @@ dustify_dsp_options(damp_dsp)
 
 file(GLOB DAMP_PRESETS CONFIGURE_DEPENDS presets/damp/*.damp)
 dustify_add_plugin(damp
+    MIDI_INPUT
     PLUGIN_CODE Damp
     LV2URI "https://dustify.com/plugins/damp"
     CLAP_ID "com.dustify.damp"
@@ -212,6 +214,7 @@ dustify_add_plugin(damp
         Source/damp/PluginProcessor.cpp
         Source/damp/PluginEditor.cpp
         Source/damp/ui/LooperView.cpp
+        Source/damp/ui/MidiPanel.cpp
         Source/damp/ui/LoopWaveformEditor.cpp
         Source/damp/ui/PedalboardView.cpp
         Source/damp/ui/TunerView.cpp
@@ -236,7 +239,8 @@ if(DUSTIFY_BUILD_TESTS)
         tests/damp/LooperTests.cpp
         tests/damp/LoopEditMathTests.cpp
         tests/damp/TempoTests.cpp
-        tests/damp/StereoInputTests.cpp)
+        tests/damp/StereoInputTests.cpp
+        tests/damp/MidiControlTests.cpp)
     target_include_directories(damp_tests PRIVATE tests)
     target_link_libraries(damp_tests PRIVATE damp_dsp Catch2::Catch2WithMain)
     target_compile_definitions(damp_tests PRIVATE DAMP_PRESET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/presets/damp")

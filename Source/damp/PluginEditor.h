@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 
 #include "ui/LooperView.h"
+#include "ui/MidiPanel.h"
 #include "ui/PedalboardView.h"
 #include "ui/TunerView.h"
 
@@ -50,10 +51,23 @@ private:
     juce::Viewport pedalViewport;
     PedalboardView pedalboard;
     LooperView looperView;
+    MidiPanel midiPanel;
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     juce::TextButton loadImpulse { "Load IR..." };
     juce::Label impulseName;
     juce::TextButton tunerButton { "Tuner" };
+    int tunerTogglesSeen = 0;
+
+    // MIDI: Learn mode (the overlay over everything) and an activity light
+    struct ActivityLight final : juce::Component, juce::SettableTooltipClient
+    {
+        float level = 0.0f;
+        void paint (juce::Graphics&) override;
+    } midiLight;
+    juce::TextButton learnButton { "Learn" };
+    std::unique_ptr<MidiLearnOverlay> learnOverlay;
+    uint32_t midiActivitySeen = 0;
+    void setLearnMode (bool);
     LevelMeter inputMeter { "IN" }, outputMeter { "OUT" };
     juce::Label inputLabel;
     juce::ComboBox inputMode;

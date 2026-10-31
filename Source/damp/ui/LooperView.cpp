@@ -1,4 +1,5 @@
 #include "LooperView.h"
+#include "MidiTags.h"
 
 #include "PluginProcessor.h"
 #include "common/plugin/ParamLayout.h"
@@ -297,6 +298,8 @@ public:
         level.setTooltip ("Track " + juce::String (t + 1) + " level");
         addAndMakeVisible (level);
         levelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (apvts, id (TP::Level), level);
+        damp::ui::setMidiTarget (level, id (TP::Level));
+        damp::ui::setMidiTarget (*this, "cmd:track_" + juce::String (t + 1));
 
         struct Switch { juce::TextButton* button; TP param; juce::uint32 colour; const char* tip; };
         for (const Switch& s : { Switch { &mute, TP::Mute, recordRed, "Mute" },
@@ -310,6 +313,7 @@ public:
             s.button->setComponentID ("looperTrack" + juce::String (t + 1) + s.button->getButtonText());
             addAndMakeVisible (*s.button);
             attachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (apvts, id (s.param), *s.button));
+            damp::ui::setMidiTarget (*s.button, id (s.param));
         }
 
         playStop.setComponentID ("looperTrack" + juce::String (t + 1) + "PlayStop");
@@ -473,6 +477,7 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
     onSwitch.setTooltip ("The looper, at the end of the chain. On reserves its memory (5 minutes of stereo shared by every track and undo).");
     addAndMakeVisible (onSwitch);
     onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.apvts, paramId (damp::PID::LooperOn), onSwitch);
+    damp::ui::setMidiTarget (onSwitch, paramId (damp::PID::LooperOn));
 
     for (auto* l : { &poolLabel, &infoLabel })
     {
@@ -499,6 +504,15 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
     stop->onClick = [this] { looper.press (Action::PlayStop); };
     for (auto* b : { rec.get(), dub.get(), play.get(), stop.get() })
         addAndMakeVisible (*b);
+    damp::ui::setMidiTarget (*rec, "cmd:looper_rec");
+    damp::ui::setMidiTarget (*dub, "cmd:looper_overdub");
+    damp::ui::setMidiTarget (*play, "cmd:looper_play_stop_all");
+    damp::ui::setMidiTarget (*stop, "cmd:looper_play_stop_all");
+    damp::ui::setMidiTarget (undo, "cmd:looper_undo");
+    damp::ui::setMidiTarget (redo, "cmd:looper_redo");
+    damp::ui::setMidiTarget (clear, "cmd:looper_clear");
+    damp::ui::setMidiTarget (clearAll, "cmd:looper_clear_all");
+    damp::ui::setMidiTarget (tap, "cmd:tap_tempo");
 
     undo.setTooltip ("Undo the selected track's last recording or overdub");
     redo.setTooltip ("Redo on the selected track");
@@ -536,6 +550,7 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
     bpm->setTooltip ("Tempo (BPM): drag (Shift or Ctrl: finely), scroll (1 BPM; Shift: 0.1), or double-click to type it. The "
                      "looper's bars, the click and tempo-synced delays follow it.");
     bpmAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.apvts, paramId (PID::Tempo), *bpm);
+    damp::ui::setMidiTarget (*bpm, paramId (PID::Tempo));
     if (auto* tempo = p.apvts.getParameter (paramId (PID::Tempo)))
     {
         bpm->onGestureStart = [tempo] { tempo->beginChangeGesture(); };
@@ -551,6 +566,7 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
     bar (clickLevel, P::modulation, "looperClickLevel");
     clickLevel.setTooltip ("Click level (the count-in's too; all the way down: silent). The click is never recorded.");
     clickLevelAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.apvts, paramId (PID::MetronomeLevel), clickLevel);
+    damp::ui::setMidiTarget (clickLevel, paramId (PID::MetronomeLevel));
     clickLevel.setDoubleClickReturnValue (true, -12.0);
 
     tap.setComponentID ("looperTap");
@@ -580,6 +596,7 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
         sw.button->setComponentID (sw.id);
         addAndMakeVisible (*sw.button);
         tempoAttachments.push_back (std::make_unique<ButtonAttachment> (p.apvts, paramId (sw.param), *sw.button));
+        damp::ui::setMidiTarget (*sw.button, paramId (sw.param));
     }
 
     beats.setComponentID ("looperBeats");
@@ -588,6 +605,7 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
     beats.setTooltip ("Beats per bar");
     addAndMakeVisible (beats);
     beatsAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (p.apvts, paramId (PID::BeatsPerBar), beats);
+    damp::ui::setMidiTarget (beats, paramId (PID::BeatsPerBar));
 
     beatIndicator = std::make_unique<BeatIndicator>();
     addAndMakeVisible (*beatIndicator);
@@ -623,6 +641,12 @@ void LooperView::select (int track)
 void LooperView::update()
 {
     global = looper.status();
+    // A MIDI footswitch's Clear all asks here too
+    if (const int ask = processor.clearAllAskState(); ask != clearAllAskSeen)
+    {
+        clearAllAskSeen = ask;
+        setClearAllAsking ((ask & 1) != 0);
+    }
     for (int t = 0; t < damp::Looper::numTracks; ++t)
     {
         statuses[(size_t) t] = looper.trackStatus (t);

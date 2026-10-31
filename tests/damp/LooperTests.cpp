@@ -1,5 +1,7 @@
 #include "dsp/looper/Looper.h"
 
+#include "AllocationCounter.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
@@ -19,12 +21,14 @@
 #include <vector>
 
 // Counts allocations made while `counting` is set on this thread, to show the audio thread
-// doesn't allocate
-namespace
+// doesn't allocate (the MIDI control tests use it too)
+namespace allocation
 {
 thread_local bool counting = false;
 thread_local long allocations = 0;
-} // namespace
+} // namespace allocation
+using allocation::counting;
+using allocation::allocations;
 
 void* operator new (std::size_t size)
 {

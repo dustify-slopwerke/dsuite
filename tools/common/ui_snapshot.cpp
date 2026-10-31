@@ -11,7 +11,8 @@
 // stopped, 3 playing), so the looper tab has something to show; looper=countin presses Rec on
 // track 1 with count-in on and stops part way through the count-in bar. With a looper setup, the
 // looper's buttons clicked (e.g. click=looperClear, click=looperClearAll twice) act before the
-// pictures are taken.
+// pictures are taken. midi=demo adds some MIDI mappings (the MIDI tab lists them); midi=learn
+// also turns Learn mode on, learning the wah's pedal (set wah_on=1 to see the pedal open).
 // dpiano: velmap=<min>,<max>,<sensitivity %> sets the keyboard calibration (MIDI velocities);
 // notes=<velocity>,... plays note-ons before the editor opens; calnotes=<velocity>,... plays them
 // after the clicks (e.g. click=calibrateButton) and lets the keyboard panel see them.
@@ -171,7 +172,7 @@ int main (int argc, char** argv)
 {
     // Positional arguments, then name=value options
     std::vector<juce::String> args, clicks;
-    juce::String looperSetup;
+    juce::String looperSetup, midiSetup;
     std::map<juce::String, juce::String> pluginOptions; // velmap, notes, calnotes (dpiano)
     std::vector<std::pair<juce::String, float>> settings;
     for (int i = 1; i < argc; ++i)
@@ -183,6 +184,8 @@ int main (int argc, char** argv)
             clicks.push_back (arg.fromFirstOccurrenceOf ("=", false, false));
         else if (arg.upToFirstOccurrenceOf ("=", false, false) == "looper")
             looperSetup = arg.fromFirstOccurrenceOf ("=", false, false);
+        else if (arg.upToFirstOccurrenceOf ("=", false, false) == "midi")
+            midiSetup = arg.fromFirstOccurrenceOf ("=", false, false);
         else if (juce::StringArray { "velmap", "notes", "calnotes" }.contains (arg.upToFirstOccurrenceOf ("=", false, false)))
             pluginOptions[arg.upToFirstOccurrenceOf ("=", false, false)] = arg.fromFirstOccurrenceOf ("=", false, false);
         else
@@ -235,6 +238,26 @@ int main (int argc, char** argv)
 #if DUSTIFY_SNAPSHOT_DAMP
     if (looperSetup.isNotEmpty())
         prepareLooper (dynamic_cast<DampAudioProcessor&> (*processor), looperSetup);
+    if (midiSetup.isNotEmpty())
+    {
+        namespace dm = damp::midi;
+        auto& midi = dynamic_cast<DampAudioProcessor&> (*processor).getMidi();
+        dm::Settings s;
+        s.mappings = { { { dm::Source::Type::Cc, 1, 11 }, dm::Target::param (damp::PID::WahPosition) },
+                       { { dm::Source::Type::Cc, 1, 64 }, dm::Target::param (damp::PID::DelayOn) },
+                       { { dm::Source::Type::Cc, 1, 65 }, dm::Target::param (damp::PID::BluesDriveOn), dm::SwitchMode::Latching },
+                       { { dm::Source::Type::Cc, 1, 7 }, dm::Target::param (damp::PID::MasterOutput) },
+                       { { dm::Source::Type::Note, 10, 36 }, dm::Target::command (dm::Command::LooperRec) },
+                       { { dm::Source::Type::Note, 10, 37 }, dm::Target::command (dm::Command::LooperOverdub) },
+                       { { dm::Source::Type::Note, 10, 38 }, dm::Target::command (dm::Command::LooperUndo) },
+                       { { dm::Source::Type::Note, 10, 39 }, dm::Target::command (dm::Command::TrackNext) },
+                       { { dm::Source::Type::Note, 10, 40 }, dm::Target::command (dm::Command::TapTempo) },
+                       { { dm::Source::Type::Note, 10, 41 }, dm::Target::command (dm::Command::Tuner) },
+                       { { dm::Source::Type::Cc, 1, 104 }, dm::Target::command (dm::Command::PresetNext) } };
+        midi.setSettings (s);
+        if (midiSetup == "learn")
+            midi.learn (dm::Target::param (damp::PID::WahPosition));
+    }
 #endif
 
 #if DUSTIFY_SNAPSHOT_DPIANO
@@ -285,6 +308,9 @@ int main (int argc, char** argv)
     }
 
 #if DUSTIFY_SNAPSHOT_DAMP
+    if (midiSetup == "learn")
+        if (auto* learn = dynamic_cast<juce::Button*> (findById (*editor, "midiLearn")))
+            learn->setToggleState (true, juce::sendNotificationSync);
     // The looper's buttons post to its engine: a moment of audio lets it act, then its tab shows
     // the result (as the editor's timer would)
     if (looperSetup.isNotEmpty() && ! clicks.empty())

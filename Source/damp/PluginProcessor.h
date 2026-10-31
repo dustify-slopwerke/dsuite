@@ -5,6 +5,7 @@
 
 #include "common/plugin/PresetHost.h"
 #include "dsp/Cabinet.h"
+#include "dsp/MidiControl.h"
 #include "dsp/Rig.h"
 
 #include "common/dsp/Convolver.h"
@@ -32,7 +33,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; } // MIDI control (see damp::midi)
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -97,6 +98,31 @@ public:
     double getEffectiveTempo() const { return effectiveTempo.load (std::memory_order_relaxed); }
     bool tempoFollowsHost() const { return tempoFromHost.load (std::memory_order_relaxed); }
 
+    // MIDI control (see damp::midi::MidiControl). The mappings, channel and Program Change switch
+    // are machine-wide (the settings file holds them for every instance) and kept in the session
+    // too, which wins when it has them. Message thread.
+    damp::midi::MidiControl& getMidi() { return midi; }
+    // Applies settings to this instance; with saveMachineWide also writes them to the settings file
+    void setMidiSettings (const damp::midi::Settings&, bool saveMachineWide);
+    // After editing getMidi() directly: saves to the settings file and tells the views
+    void midiSettingsChanged();
+    int midiSettingsVersion() const { return midiVersion.load(); }
+    // <user app data>/damp/damp.settings, or damp.settings in $DUSTIFY_SETTINGS_DIR (tests and tools)
+    static juce::File settingsFile();
+    static damp::midi::Settings loadMachineMidiSettings();
+    // What the audio thread's MIDI asked of the message thread: host parameters, presets, the
+    // tuner, learned mappings. A timer runs it; tools may call it directly.
+    void serviceMidi();
+    // The editor follows these: tuner toggles asked for, and Clear all asking (count << 1 | asking)
+    int tunerToggleCount() const { return tunerToggles.load(); }
+    int clearAllAskState() const { return clearAllAsk.load(); }
+
+    // The preset menu's list (as PresetBar shows it): the factory presets, then the user's files
+    // in name order. Message thread.
+    int presetListSize() const;
+    bool loadPresetAt (int index);
+    int presetListPosition() const; // the current preset's place in it (-1: not known)
+
     // Peak levels since the last call (message thread)
     float takeInputPeak() { return inputPeak.exchange (0.0f); }
     float takeOutputPeak() { return outputPeak.exchange (0.0f); }
@@ -117,6 +143,15 @@ private:
     damp::BoardOrder readBoard() const; // audio thread
 
     damp::Rig rig;
+    damp::midi::MidiControl midi;
+    struct MidiPump final : juce::Timer
+    {
+        explicit MidiPump (DampAudioProcessor& p) : owner (p) {}
+        void timerCallback() override { owner.serviceMidi(); }
+        DampAudioProcessor& owner;
+    } midiPump { *this };
+    std::atomic<int> midiVersion { 0 }, tunerToggles { 0 }, clearAllAsk { 0 };
+    juce::Array<juce::File> userPresetFiles() const;
     juce::CriticalSection presetNameLock;
     juce::String currentPresetName;
     std::array<std::atomic<float>*, damp::numParams> rawParams {};

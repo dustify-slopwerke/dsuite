@@ -37,8 +37,8 @@ input -> Input Gain -> Noise Gate -> [pedals before the amp] -> amp -> cabinet
 
 ## Editor
 
-- Header: title, **Tuner** button, **Input**, input and output meters, **Master**, preset bar.
-- Tabs: **Amp**, **Pedals**, **Looper**.
+- Header: title, **Tuner** button, **Learn** (MIDI Learn) and the MIDI light, **Input**, input and output meters, **Master**, preset bar.
+- Tabs: **Amp**, **Pedals**, **Looper**, **MIDI**.
 - The window is resizable with a fixed aspect ratio (60% to 200%); the size is saved with the session.
 - Controls that do nothing in the current setup are dimmed (gate controls with the gate off,
   Resonance on the Chime model, mic controls with no modelled cab).
@@ -329,11 +329,98 @@ The **WAV** menu on each row:
 
 ### Host automation
 
-The looper's controls are host parameters, so they can be mapped to footswitches or MIDI
-through the host: Looper On, Selected Track, Rec / Overdub, Play / Stop All, Undo, Redo, Clear
+The looper's controls are host parameters, so they can also be mapped to footswitches or MIDI
+through the host (or with damp's own MIDI Learn: see MIDI control): Looper On, Selected Track, Rec / Overdub, Play / Stop All, Undo, Redo, Clear
 Track, and each track's Level, Mute, Reverse, Half Speed and Sync. The button parameters act
 when they go from off to on, so a footswitch fires once per press. Rec / Overdub cycles the
 selected track: empty, record, play, overdub, play, overdub...
+
+## MIDI control
+
+damp takes MIDI in every format (VST3, CLAP, LV2 and the Standalone app's MIDI input, chosen in
+its audio settings), so a controller or a MIDI footswitch can switch presets, pedals and the
+looper with your hands on the guitar.
+
+### Program Change
+
+- **Program Change selects presets** (MIDI tab, on by default): program *n* loads entry *n* of
+  the preset menu, counting from 0: the factory presets first, then your own.
+- **Bank Select** reaches past 128: send CC 0 (MSB) and / or CC 32 (LSB) before the program
+  change; the preset is (MSB x 128 + LSB) x 128 + program. A number past the end of the list
+  does nothing. While Program Change is on, CC 0 and 32 can't be mapped to anything else.
+
+### Channel
+
+**MIDI channel** (MIDI tab): **Omni** (default) uses every channel; a channel uses that one only.
+Each mapping also keeps the channel it was learned on (a Launchkey's pads and knobs can send on
+different channels).
+
+### MIDI Learn
+
+- Click **Learn** in the header. Every control MIDI can drive gets an outline; the ones already
+  mapped show their source (CC 11, Note C2...). Click a control, then move a knob or press a pad
+  or footswitch: the first CC or note on maps to it (it doesn't act yet). Click the control again
+  to stop learning, or **Learn** to leave learn mode. Tabs still switch and the pedal board still
+  scrolls while it's on.
+- Right-click a control in learn mode to forget its mapping or set the switch mode. The preset
+  bar offers previous / next preset.
+- **Learn...** on the MIDI tab picks any target from a menu, including those without a control
+  of their own: next / previous track, select track 1-8, Play / Stop of the selected track, the
+  metronome.
+- A CC or note maps to one target: learning it again moves it. A target can have several sources
+  (a pad and a footswitch both on Rec, say).
+
+What can be mapped:
+
+- **Any parameter** that's continuous or a choice (wah pedal position for an expression pedal,
+  Master, Level, delay mix, amp model...): a CC sweeps it over its range (as hosts set it); a note
+  sets it from its velocity.
+- **Any switch** (pedal on / off, gate, looper switches): toggles on a press.
+- **Commands**: Looper Rec, Overdub, Play, Stop, Undo, Redo and Clear (the selected track),
+  Play / Stop all, Clear all, next / previous track, select track 1-8, tap tempo, metronome on /
+  off, next / previous preset, tuner on / off.
+  - **Overdub** does nothing on an empty track (Rec records it); on a loop it overdubs, or stops
+    overdubbing.
+  - **Clear all** asks first, as the button does: the first press turns the button to "Sure?",
+    and a second press within 3 seconds clears.
+  - **Tap tempo** works as the Tap button does (and turns Follow host off).
+  - **Tuner** opens and closes the tuner in the editor (only while the editor is open).
+- Looper commands act at the start of the audio block the message arrives in.
+
+### Footswitches: momentary and latching
+
+Switches and commands act on a *press*:
+
+- **Momentary** (default): a footswitch that sends 127 when pressed and 0 when released acts once
+  per press (on the step from below 64 to 64 or more; a repeated 127 is not a new press).
+- **Latching**: a footswitch that sends 127 on one press and 0 on the next acts on both.
+- A note on is always a press (note offs do nothing).
+
+Click a mapping's mode on the MIDI tab (or right-click the control in learn mode) to change it.
+
+### The MIDI tab
+
+The channel, the Program Change switch, every mapping (source, what it controls, its mode,
+and x to remove it), **Learn...**, and the last message received. The light next to **Learn** in
+the header flashes on every MIDI message damp uses.
+
+### Where mappings are kept
+
+- **On this machine**: every change (learning, removing, a mode, the channel, Program Change)
+  is saved to `damp.settings` in the user's application data folder (`~/.config/damp/` on Linux,
+  `%APPDATA%\damp\` on Windows), so every new damp, in the Standalone app or any host, starts
+  with them.
+- **In the session**: a session (DAW project) keeps a copy of the MIDI settings and restores it,
+  over this machine's. A session saved before MIDI control uses this machine's.
+
+### Hosts
+
+- MIDI changes to parameters are heard at once and reach the host (and its automation) from the
+  user-interface thread a moment later, as if the control had been moved.
+- In a DAW, route the controller's MIDI to the damp track's MIDI input (in some hosts an audio
+  effect's MIDI input has to be enabled first). LV2 hosts that cached damp's description may need
+  to rescan it to see the MIDI input; its ports are otherwise unchanged.
+- The host's own MIDI learn of damp's parameters still works too (see Host automation above).
 
 ## Presets
 
@@ -392,8 +479,8 @@ delay_sync = 1/8.
 
 ## Saved with the session
 
-Parameters (including Master, tempo and click), pedal order, the loaded IR, tuner mute and reference pitch, window size, the
-current preset (the program number and the name in the preset bar), and the looper's audio and
+Parameters (including Master, tempo and click), pedal order, the loaded IR, tuner mute and reference pitch, window size,
+the MIDI settings and mappings (see MIDI control), the current preset (the program number and the name in the preset bar), and the looper's audio and
 edits.
 - Reopening a session shows the preset it was saved with, but keeps the session's own values
   (the preset is not loaded again over any edits made after choosing it).

@@ -32,11 +32,14 @@ DampAudioProcessor::DampAudioProcessor()
     // The same at every oversampling factor, so it never changes while the plugin runs
     setBoard (damp::BoardOrder::defaults());
     setLatencySamples (damp::Rig::latencySamples);
+    midi.setSettings (loadMachineMidiSettings());
     startTimerHz (20);
+    midiPump.startTimerHz (60); // presets and parameters MIDI changed reach the host this soon
 }
 
 DampAudioProcessor::~DampAudioProcessor()
 {
+    midiPump.stopTimer();
     stopTimer();
 }
 
@@ -227,6 +230,149 @@ std::vector<float> DampAudioProcessor::getUserImpulse (double& rate) const
     return impulseSamples;
 }
 
+// ---- MIDI control ----
+
+juce::File DampAudioProcessor::settingsFile()
+{
+    if (const auto dir = juce::SystemStats::getEnvironmentVariable ("DUSTIFY_SETTINGS_DIR", {}); dir.isNotEmpty())
+        return juce::File (dir).getChildFile ("damp.settings");
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("damp/damp.settings");
+}
+
+namespace
+{
+juce::PropertiesFile::Options settingsOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "damp";
+    options.filenameSuffix = "settings";
+    options.storageFormat = juce::PropertiesFile::storeAsXML;
+    options.millisecondsBeforeSaving = -1; // saved explicitly
+    return options;
+}
+
+constexpr auto midiTag = "MIDI";
+} // namespace
+
+damp::midi::Settings DampAudioProcessor::loadMachineMidiSettings()
+{
+    const auto file = settingsFile();
+    if (! file.existsAsFile())
+        return {};
+    juce::PropertiesFile settings (file, settingsOptions());
+    if (! settings.containsKey ("midi"))
+        return {};
+    return damp::midi::parseSettings (settings.getValue ("midi").toStdString());
+}
+
+void DampAudioProcessor::setMidiSettings (const damp::midi::Settings& s, bool saveMachineWide)
+{
+    midi.setSettings (s);
+    ++midiVersion;
+    if (saveMachineWide)
+        midiSettingsChanged();
+}
+
+void DampAudioProcessor::midiSettingsChanged()
+{
+    ++midiVersion;
+    const auto file = settingsFile();
+    file.getParentDirectory().createDirectory();
+    juce::PropertiesFile settings (file, settingsOptions());
+    settings.setValue ("midi", juce::String (damp::midi::serialise (midi.settings())));
+    if (! settings.saveIfNeeded())
+    {
+        DBG ("damp: couldn't write " << file.getFullPathName());
+    }
+}
+
+void DampAudioProcessor::serviceMidi()
+{
+    // Parameters: the latest value of each, in one gesture, then acknowledged so the audio thread
+    // lets the host's value carry it
+    std::map<int, damp::midi::MidiControl::ParamChange> latest;
+    damp::midi::MidiControl::ParamChange change;
+    while (midi.popParamChange (change))
+        latest[(int) change.pid] = change;
+    for (const auto& [pid, c] : latest)
+    {
+        if (auto* param = apvts.getParameter (toJuce (damp::paramInfo (c.pid).id)))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (c.normalised);
+            param->endChangeGesture();
+        }
+        midi.acknowledge (c);
+    }
+
+    using Type = damp::midi::MidiControl::Request::Type;
+    damp::midi::MidiControl::Request r;
+    while (midi.popRequest (r))
+        switch (r.type)
+        {
+            case Type::Preset: loadPresetAt (r.value); break;
+            case Type::PresetStep:
+                if (const int n = presetListSize(); n > 0)
+                {
+                    const int at = presetListPosition();
+                    loadPresetAt (at < 0 ? (r.value > 0 ? 0 : n - 1) : (at + r.value + n) % n);
+                }
+                break;
+            case Type::Tuner: ++tunerToggles; break;
+            case Type::Learned:
+                midi.addMapping (r.mapping);
+                midiSettingsChanged();
+                break;
+            case Type::ClearAllAsking: clearAllAsk.store (((clearAllAsk.load() >> 1) + 1) << 1 | (r.value != 0 ? 1 : 0)); break;
+        }
+}
+
+juce::Array<juce::File> DampAudioProcessor::userPresetFiles() const
+{
+    auto files = userPresetDirectory().findChildFiles (juce::File::findFiles, false, "*." + presetFileExtension());
+    files.sort();
+    return files;
+}
+
+int DampAudioProcessor::presetListSize() const
+{
+    return (int) factoryPresets.size() + userPresetFiles().size();
+}
+
+bool DampAudioProcessor::loadPresetAt (int index)
+{
+    const int factory = (int) factoryPresets.size();
+    if (juce::isPositiveAndBelow (index, factory))
+    {
+        setCurrentProgram (index);
+        return true;
+    }
+    const auto files = userPresetFiles();
+    if (! juce::isPositiveAndBelow (index - factory, files.size()) || ! files[index - factory].existsAsFile())
+        return false;
+    loadPresetText (files[index - factory].loadFileAsString().toStdString());
+    // As the preset menu shows it: by its file name
+    setCurrentPresetName (files[index - factory].getFileNameWithoutExtension());
+    return true;
+}
+
+int DampAudioProcessor::presetListPosition() const
+{
+    const auto name = getCurrentPresetName();
+    if (name.isEmpty())
+        return -1;
+    if (juce::isPositiveAndBelow (currentProgram, (int) factoryPresets.size()) && factoryPresets[(size_t) currentProgram].name == name)
+        return currentProgram;
+    for (size_t i = 0; i < factoryPresets.size(); ++i)
+        if (factoryPresets[i].name == name)
+            return (int) i;
+    const auto files = userPresetFiles();
+    for (int i = 0; i < files.size(); ++i)
+        if (files[i].getFileNameWithoutExtension() == name)
+            return (int) factoryPresets.size() + i;
+    return -1;
+}
+
 void DampAudioProcessor::setCurrentProgram (int index)
 {
     if (! juce::isPositiveAndBelow (index, (int) factoryPresets.size()))
@@ -363,6 +509,7 @@ void DampAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 
     auto& looper = rig.looper();
     looper.audioStopped();
+    midi.prepare (sampleRate);
     rig.setPatch (currentPatch());
     rig.setBoard (readBoard());
     rig.prepare (sampleRate, (int) (damp::maxImpulseSeconds * sampleRate) + 1);
@@ -441,7 +588,7 @@ void DampAudioProcessor::delayDry (const juce::AudioBuffer<float>& buffer, int n
     dryPos = (dryPos + numSamples) % length;
 }
 
-void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -479,9 +626,17 @@ void DampAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             takenKernel = kernel;
         }
 
+    // MIDI control: what it sets is heard from this block (the host hears of it from the message
+    // thread), and looper commands act at its start
+    auto patch = currentPatch();
+    midi.beginBlock (patch);
+    for (const auto event : midiMessages)
+        midi.handle (event.data, event.numBytes, event.samplePosition, patch, rig.looper());
+    midi.endBlock (numSamples);
+    midiMessages.clear();
+
     // The tempo: the host's when following it (a Standalone app's play head isn't a host's), else
     // the tempo parameter. The looper's beats follow the host's position while it plays.
-    const auto patch = currentPatch();
     const bool follow = patch.on (damp::PID::TempoFollowHost) && wrapperType != wrapperType_Standalone;
     double bpm = patch[damp::PID::Tempo], ppq = 0.0;
     bool fromHost = false, hostRunning = false;
@@ -549,6 +704,8 @@ void DampAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         xml->setAttribute ("tunerA4", juce::String (tunerReference.load(), 1));
         xml->setAttribute ("board", juce::String (getBoard().format()));
         dustify::writePresetSelection (*xml, currentProgram, getCurrentPresetName());
+        // MIDI control travels with the session (and wins over the machine's when it loads)
+        xml->createNewChildElement (midiTag)->addTextElement (juce::String (damp::midi::serialise (midi.settings())));
 
         // A user IR travels with the session, so projects stay portable
         double rate = 0.0;
@@ -596,10 +753,12 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
         loops = damp::looper::decodeSession (juce::addBytesToPointer (data, (int) xmlBytes), (size_t) sizeInBytes - xmlBytes,
                                              &LoopFlacPacker::instance());
 
-    uiScale = juce::jlimit (0.6f, 2.0f, (float) xml->getDoubleAttribute ("uiScale", 1.0));
+    // Nothing damaged (NaN, inf) gets in: the defaults stand instead
+    auto finite = [] (double v, double fallback) { return std::isfinite (v) ? v : fallback; };
+    uiScale = juce::jlimit (0.6f, 2.0f, (float) finite (xml->getDoubleAttribute ("uiScale", 1.0), 1.0));
     xml->removeAttribute ("uiScale");
     tunerMute = xml->getIntAttribute ("tunerMute", 1) != 0;
-    tunerReference = (float) juce::jlimit (415.0, 466.0, xml->getDoubleAttribute ("tunerA4", 440.0));
+    tunerReference = (float) juce::jlimit (415.0, 466.0, finite (xml->getDoubleAttribute ("tunerA4", 440.0), 440.0));
     setBoard (damp::BoardOrder::parse (xml->getStringAttribute ("board").toStdString()));
     xml->removeAttribute ("tunerMute");
     xml->removeAttribute ("tunerA4");
@@ -607,6 +766,16 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
     juce::String presetName;
     dustify::readPresetSelection (*xml, getNumPrograms(), currentProgram, presetName);
     setCurrentPresetName (presetName);
+
+    if (auto* midiState = xml->getChildByName (midiTag))
+    {
+        setMidiSettings (damp::midi::parseSettings (midiState->getAllSubText().toStdString()), false);
+        xml->removeChildElement (midiState, true);
+    }
+    else
+    {
+        setMidiSettings (loadMachineMidiSettings(), false); // a session saved before MIDI control
+    }
 
     std::vector<float> samples;
     juce::String irName;
@@ -618,8 +787,11 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
         {
             samples.resize (encoded.getSize() / sizeof (float));
             std::memcpy (samples.data(), encoded.getData(), samples.size() * sizeof (float));
+            for (auto& x : samples)
+                if (! std::isfinite (x))
+                    x = 0.0f;
             irName = ir->getStringAttribute ("name");
-            irRate = juce::jlimit (8000.0, 768000.0, ir->getDoubleAttribute ("rate", 48000.0));
+            irRate = juce::jlimit (8000.0, 768000.0, finite (ir->getDoubleAttribute ("rate", 48000.0), 48000.0));
         }
         xml->removeChildElement (ir, true);
     }
@@ -629,11 +801,12 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
     // defaults. A session from before the master output (master_out) applied output_volume after
     // the looper: its preset level becomes part of each loop's level, so the loops keep their
     // level against the live sound.
+    dustify::removeNanParamValues (*xml);
     std::map<juce::String, juce::XmlElement*> saved;
     for (auto* child : xml->getChildWithTagNameIterator ("PARAM"))
         saved[child->getStringAttribute ("id")] = child;
     const bool beforeMaster = saved.find ("master_out") == saved.end();
-    const float oldVolume = saved.count ("output_volume") != 0 ? (float) saved["output_volume"]->getDoubleAttribute ("value") : 0.0f;
+    const float oldVolume = saved.count ("output_volume") != 0 ? (float) finite (saved["output_volume"]->getDoubleAttribute ("value"), 0.0) : 0.0f;
     for (const auto& info : damp::allParams())
         if (saved.find (toJuce (info.id)) == saved.end())
         {
@@ -647,7 +820,7 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
         {
             const auto& info = damp::paramInfo (damp::trackParam (t, damp::TrackParam::Level));
             auto* param = saved[toJuce (info.id)];
-            const float db = (float) param->getDoubleAttribute ("value", info.def);
+            const float db = (float) finite (param->getDoubleAttribute ("value", info.def), info.def);
             param->setAttribute ("value", db <= info.min ? (double) info.min : (double) juce::jlimit (info.min, info.max, db + oldVolume));
         }
     apvts.replaceState (juce::ValueTree::fromXml (*xml));

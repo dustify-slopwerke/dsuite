@@ -27,6 +27,7 @@ public:
         : spec (&info), type (info.type), m (sizes)
     {
         const auto id = toJuce (info.id);
+        getProperties().set ("dustifyParam", id); // which parameter it is, for plugins' MIDI learn
 
         label.setText (toJuce (info.label), juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);

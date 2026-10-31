@@ -1,5 +1,6 @@
 #include "PedalboardView.h"
 
+#include "MidiTags.h"
 #include "PluginProcessor.h"
 #include "common/plugin/ParamLayout.h"
 #include "common/ui/DustifyLookAndFeel.h"
@@ -76,6 +77,7 @@ public:
         onSwitch.setTooltip (dustify::toJuce (on.name));
         addAndMakeVisible (onSwitch);
         onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.apvts, dustify::toJuce (on.id), onSwitch);
+        damp::ui::setMidiTarget (onSwitch, dustify::toJuce (on.id));
 
         fold.setComponentID ("fold_" + juce::String (info.key.data(), info.key.size()));
         fold.setTooltip ("Show or hide the controls");

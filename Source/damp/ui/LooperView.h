@@ -57,6 +57,7 @@ private:
     std::unique_ptr<TransportButton> rec, dub, play, stop;
     juce::TextButton undo { "Undo" }, redo { "Redo" }, clear { "Clear" }, clearAll { "Clear all" };
     juce::uint32 clearAllAskedAt = 0; // when Clear all turned to "Sure?" (0: it isn't asking)
+    int clearAllAskSeen = 0; // the processor's clearAllAskState() last followed
     static constexpr juce::uint32 clearAllConfirmMs = 3000;
 
     // Tempo and metronome
