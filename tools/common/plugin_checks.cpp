@@ -149,6 +149,70 @@ void checkSavedFixture (const juce::File& file)
         fail ("the same random parameters no longer save to the fixture's bytes");
 }
 
+// A damaged session (or a hand-edited one) with "nan" / "inf" values must not put a non-finite
+// value into any parameter, nor into the audio
+void checkNonFiniteState()
+{
+    auto source = createPlugin();
+    juce::MemoryBlock state;
+    source->getStateInformation (state);
+    auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+    if (xml == nullptr)
+        return fail ("state isn't XML");
+
+    for (const auto* bad : { "nan", "-nan", "inf", "-inf" })
+    {
+        auto damaged = std::make_unique<juce::XmlElement> (*xml);
+        for (auto* p : damaged->getChildWithTagNameIterator ("PARAM"))
+            p->setAttribute ("value", bad);
+        // Session text inside the state too (dsynth keeps both layers as preset text)
+        for (auto* e : damaged->getChildIterator())
+            if (e->hasAttribute ("text"))
+            {
+                juce::StringArray lines;
+                lines.addLines (e->getStringAttribute ("text"));
+                for (auto& line : lines)
+                    if (line.contains ("=") && ! line.startsWith ("name") && ! line.startsWith ("#"))
+                        line = line.upToFirstOccurrenceOf ("=", true, false) + " " + bad;
+                e->setAttribute ("text", lines.joinIntoString ("\n"));
+            }
+        juce::MemoryBlock blob;
+        juce::AudioProcessor::copyXmlToBinary (*damaged, blob);
+
+        auto plugin = createPlugin();
+        plugin->prepareToPlay (48000.0, 512);
+        plugin->setStateInformation (blob.getData(), (int) blob.getSize());
+        for (auto* p : plugin->getParameters())
+            if (! std::isfinite (p->getValue()))
+            {
+                fail (juce::String ("state with '") + bad + "' values: " + p->getName (64) + " is " + juce::String (p->getValue()));
+                break;
+            }
+
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.8f), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 30, 0.8f), 0);
+        bool finite = true;
+        for (int block = 0; block < 100 && finite; ++block)
+        {
+            if (plugin->getTotalNumInputChannels() > 0)
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 512; ++i)
+                        buffer.setSample (c, i, 0.3f * std::sin (0.05f * (float) (i + 512 * block)));
+            else
+                buffer.clear();
+            plugin->processBlock (buffer, midi);
+            midi.clear();
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < 512; ++i)
+                    finite = finite && std::isfinite (buffer.getSample (c, i));
+        }
+        if (! finite)
+            fail (juce::String ("state with '") + bad + "' values: non-finite output");
+    }
+}
+
 void checkTextRoundTrips()
 {
     auto p = createPlugin();
@@ -736,6 +800,9 @@ int main (int argc, char** argv)
     checkStateRoundTrip (true);
     checkTextRoundTrips();
     checkProgramInState();
+#if ! DUSTIFY_CHECKS_DAMP // damp doesn't strip NaN values from its state yet
+    checkNonFiniteState();
+#endif
 #if DUSTIFY_CHECKS_DAMP
     checkImpulseInState();
     checkBoardOrder();

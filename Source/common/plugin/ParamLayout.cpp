@@ -106,4 +106,11 @@ float snapToSaveGrid (const juce::RangedAudioParameter& param, float value)
     return param.convertFrom0to1 (normalised);
 }
 
+void removeNanParamValues (juce::XmlElement& state)
+{
+    for (auto* param : state.getChildWithTagNameIterator ("PARAM"))
+        if (param->hasAttribute ("value") && std::isnan (param->getDoubleAttribute ("value")))
+            param->removeAttribute ("value");
+}
+
 } // namespace dustify

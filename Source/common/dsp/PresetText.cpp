@@ -83,7 +83,8 @@ bool parseParamValue (const ParamSpec& info, std::string_view s, float& out)
             return false;
 
         case ParamType::Float:
-            if (! parseNumber (s, out))
+            // from_chars reads "nan" too, which std::clamp lets through
+            if (! parseNumber (s, out) || std::isnan (out))
                 return false;
             out = std::clamp (out, info.min, info.max);
             return true;

@@ -319,6 +319,7 @@ void DsynthAudioProcessor::setStateInformation (const void* data, int sizeInByte
         }
         swapping = true;
     }
+    dustify::removeNanParamValues (*xml);
     apvts.replaceState (juce::ValueTree::fromXml (*xml));
 
     // replaceState() skips parameters whose restored value rounds to their current one, which

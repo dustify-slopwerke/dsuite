@@ -64,6 +64,21 @@ TEST_CASE ("Preset parsing is forgiving")
     CHECK (parsed.warnings.size() == 2);
 }
 
+TEST_CASE ("Preset parsing rejects NaN, in either layer")
+{
+    // from_chars accepts "nan"; std::clamp passes it on, and layer B goes straight to the engine
+    const auto parsed = parsePreset ("filter_cutoff = nan\n"
+                                     "filter_reso = -nan\n"
+                                     "osc1_level = inf\n"
+                                     "[layer b]\n"
+                                     "filter_cutoff = NaN\n");
+    CHECK (parsed.patch[PID::FilterCutoff] == paramInfo (PID::FilterCutoff).def);
+    CHECK (parsed.patch[PID::FilterReso] == paramInfo (PID::FilterReso).def);
+    CHECK (parsed.patch[PID::Osc1Level] == paramInfo (PID::Osc1Level).max); // infinity clamps like any big number
+    CHECK (parsed.layerB[PID::FilterCutoff] == paramInfo (PID::FilterCutoff).def);
+    CHECK (parsed.warnings.size() == 3);
+}
+
 TEST_CASE ("Factory presets all parse cleanly")
 {
     int count = 0;

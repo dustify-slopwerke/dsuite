@@ -28,4 +28,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout (const
 // grid in the normalised domain makes the round trip land on the same grid point every time.
 float snapToSaveGrid (const juce::RangedAudioParameter&, float value);
 
+// Drops PARAM values that read as NaN from a state about to go to replaceState() (which would
+// pass them straight through the parameter's range into the audio); those parameters load
+// their defaults instead
+void removeNanParamValues (juce::XmlElement& state);
+
 } // namespace dustify
