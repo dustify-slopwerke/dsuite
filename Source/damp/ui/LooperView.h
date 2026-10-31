@@ -11,11 +11,13 @@
 class DampAudioProcessor;
 
 // The looper tab: the transport across the top (on switch, Rec / Overdub / Play / Stop, Undo /
-// Redo / Clear, the loop's length and position), the tempo and metronome row (BPM, tap, follow
+// Redo / Clear on the selected track, Clear all, the loop's length and position), the tempo and metronome row (BPM, tap, follow
 // host, tempo from the loop, quantise, click, count-in, beat dots), a row per track (state, a strip of its loop, level, mute,
 // reverse, half speed, sync, play / stop, WAV export and import), and the selected track's
 // waveform editor below. Buttons act through Looper::press; the per-track switches and levels
-// are their parameters. Everything shown is polled from the engine's published status.
+// are their parameters. Everything shown is polled from the engine's published status. Clear all
+// asks first, in place: the button turns to "Sure?" for a few seconds and a second click clears.
+// The tempo is a TempoSlider (fine drag, wheel steps, double-click to type).
 class LooperView final : public juce::Component
 {
 public:
@@ -32,6 +34,7 @@ private:
     class TrackRow;
     class TransportButton;
     class BeatIndicator;
+    class TempoSlider;
 
     void select (int track);
     void showWavMenu (int track, juce::Component& from);
@@ -42,6 +45,8 @@ private:
     void setTempo (double bpm);
     void tapTempo();
     void tempoFromLoop();
+    void clearAllClicked();
+    void setClearAllAsking (bool);
 
     DampAudioProcessor& processor;
     damp::Looper& looper;
@@ -50,12 +55,15 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> onAttachment;
     juce::Label title, poolLabel, infoLabel;
     std::unique_ptr<TransportButton> rec, dub, play, stop;
-    juce::TextButton undo { "Undo" }, redo { "Redo" }, clear { "Clear" };
+    juce::TextButton undo { "Undo" }, redo { "Redo" }, clear { "Clear" }, clearAll { "Clear all" };
+    juce::uint32 clearAllAskedAt = 0; // when Clear all turned to "Sure?" (0: it isn't asking)
+    static constexpr juce::uint32 clearAllConfirmMs = 3000;
 
     // Tempo and metronome
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     juce::Label tempoLabel, hostTempo;
-    juce::Slider bpm, clickLevel;
+    std::unique_ptr<TempoSlider> bpm;
+    juce::Slider clickLevel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bpmAttachment, clickLevelAttachment;
     juce::TextButton tap { "Tap" }, fromLoop { "From loop" };
     juce::TextButton followHost { "Follow host" }, quantise { "Quantise" }, clickOn { "Click" }, accent { "Accent" },

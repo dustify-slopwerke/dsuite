@@ -9,7 +9,9 @@
 // damp: looper=ready switches the looper on with its memory reserved; looper=demo also fills
 // three tracks with test audio (track 1 padded before and after and playing, 2 reversed and
 // stopped, 3 playing), so the looper tab has something to show; looper=countin presses Rec on
-// track 1 with count-in on and stops part way through the count-in bar.
+// track 1 with count-in on and stops part way through the count-in bar. With a looper setup, the
+// looper's buttons clicked (e.g. click=looperClear, click=looperClearAll twice) act before the
+// pictures are taken.
 // dpiano: velmap=<min>,<max>,<sensitivity %> sets the keyboard calibration (MIDI velocities);
 // notes=<velocity>,... plays note-ons before the editor opens; calnotes=<velocity>,... plays them
 // after the clicks (e.g. click=calibrateButton) and lets the keyboard panel see them.
@@ -22,6 +24,9 @@
 #endif
 #if DUSTIFY_SNAPSHOT_DPIANO
  #include "KeyboardPanel.h"
+#endif
+#if DUSTIFY_SNAPSHOT_DAMP
+ #include "ui/LooperView.h"
 #endif
 
 #include <cmath>
@@ -77,23 +82,28 @@ void setParam (juce::AudioProcessor& p, const juce::String& id, float value)
             ranged->setValueNotifyingHost (ranged->convertTo0to1 (value));
 }
 
+constexpr double looperRate = 48000.0;
+constexpr int looperBlock = 512;
+
+// Audio for a while (silence in), so the looper acts on what was pressed
+void runLooper (DampAudioProcessor& p, double seconds)
+{
+    juce::AudioBuffer<float> buffer (2, looperBlock);
+    juce::MidiBuffer midi;
+    for (int i = 0; i < (int) std::ceil (seconds * looperRate / looperBlock); ++i)
+    {
+        buffer.clear();
+        p.processBlock (buffer, midi);
+    }
+    p.getLooper().audioStopped(); // message calls act at once
+}
+
 void prepareLooper (DampAudioProcessor& p, const juce::String& setup)
 {
-    constexpr double rate = 48000.0;
-    constexpr int block = 512;
-    juce::AudioBuffer<float> buffer (2, block);
-    juce::MidiBuffer midi;
-    auto run = [&] (double seconds)
-    {
-        for (int i = 0; i < (int) std::ceil (seconds * rate / block); ++i)
-        {
-            buffer.clear();
-            p.processBlock (buffer, midi);
-        }
-        p.getLooper().audioStopped(); // message calls act at once
-    };
+    constexpr double rate = looperRate;
+    auto run = [&p] (double seconds) { runLooper (p, seconds); };
 
-    p.prepareToPlay (rate, block);
+    p.prepareToPlay (rate, looperBlock);
     setParam (p, "looper_on", 1.0f);
     auto& looper = p.getLooper();
     looper.createPool (rate);
@@ -273,6 +283,19 @@ int main (int argc, char** argv)
         }
         button->onClick(); // as a click would, but now rather than via the message queue
     }
+
+#if DUSTIFY_SNAPSHOT_DAMP
+    // The looper's buttons post to its engine: a moment of audio lets it act, then its tab shows
+    // the result (as the editor's timer would)
+    if (looperSetup.isNotEmpty() && ! clicks.empty())
+    {
+        runLooper (dynamic_cast<DampAudioProcessor&> (*processor), 0.05);
+        if (auto* tabs = findTabs (*editor))
+            for (int tab = 0; tab < tabs->getNumTabs(); ++tab)
+                if (auto* view = dynamic_cast<LooperView*> (tabs->getTabContentComponent (tab)))
+                    view->update();
+    }
+#endif
 
 #if DUSTIFY_SNAPSHOT_DPIANO
     if (const auto it = pluginOptions.find ("calnotes"); it != pluginOptions.end())

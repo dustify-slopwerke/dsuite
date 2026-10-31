@@ -218,8 +218,9 @@ records the live signal (amp, cab and all pedals) without the loops already play
 | Rec | On an empty selected track: start recording. Press again to close the loop and play it. |
 | Overdub | On a track with a loop: overdub over it (a stopped track starts playing). Press again to stop overdubbing. Punches in and out over 5 ms. |
 | Play / Stop | Play every track from the top of the first track's loop, or stop every track. |
-| Undo / Redo | Selected track's last recording or overdub (up to 4 levels each way). Undo while recording discards the take. |
-| Clear | Empty the selected track (Undo brings it back). |
+| Undo / Redo | Selected track's last recording, overdub or Clear (up to 4 levels each way, per track). Undo while recording discards the take. |
+| Clear | Empty the selected track. Undo brings it back (playing, if other tracks are); its memory stays reserved for undo until a recording needs it. |
+| Clear all | Empty every track, with all undo history, and reset the master length. Click it twice: it turns to **Sure?** for 3 seconds first. |
 
 - Click a track row to select it. Only one track records or overdubs at a time: pressing Rec on
   another track closes the current recording or overdub.
@@ -228,7 +229,9 @@ records the live signal (amp, cab and all pedals) without the loops already play
   (half speed: an octave down, twice as long), **Sync**, a per-track play/stop button and a
   **WAV** menu.
 - Reverse and Half are playback only; a track cannot be overdubbed while either is on.
-- Undo, Redo and Clear dip the track briefly and swap at silence; edits and switch changes crossfade.
+- Undo, Redo and Clear dip the track briefly (3 ms each way) and swap at silence, so they are
+  click-free while playing and sync tracks stay in time; edits and switch changes crossfade.
+  Undo straight after Clear (while it dips) calls the clear off.
 
 ### Sync and closing at the bar
 
@@ -253,7 +256,7 @@ The row under the transport:
 
 | Control | Notes |
 |---|---|
-| Tempo | 40 to 240 BPM (120). Drag, or click to type. Shows the host's tempo, greyed, while Follow host uses it. |
+| Tempo | 40 to 240 BPM (120). Drag right or up (0.5 BPM a pixel; hold Shift or Ctrl for 0.05), scroll (1 BPM a step; Shift: 0.1), or double-click to type. Shows the host's tempo, greyed, while Follow host uses it. |
 | Tap | Tap on the beat: the mean of the last five intervals; a pause over 2 s starts again. Turns Follow host off. |
 | Follow host | (on) Use the host's tempo when it provides one, and its beats while it plays. |
 | From loop | Set the tempo from the master loop: the tempo (70-180 BPM, nearest the current one) that makes it whole bars. |

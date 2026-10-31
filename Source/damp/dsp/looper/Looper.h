@@ -67,7 +67,14 @@ namespace damp
 // fade in and out over the same length, and an overdub over the seam is written through the same
 // equal-power weights so it plays back seamlessly. Edit and reverse / half-speed / sync changes
 // crossfade between the old and new read positions (10 ms); undo, redo, clear and audio handed
-// over from the message thread dip the track (3 ms each way) and swap at silence.
+// over from the message thread dip the track (3 ms each way) and swap at silence, sync tracks
+// keeping their place on the clock.
+//
+// Undo. Each track keeps up to looper::maxUndo levels of undo and as many of redo: the take as it
+// was before each recording, overdub and Clear. Clear is undoable (the cleared take stays in the
+// pool as an undo level); Clear all (Action::ClearAll) empties every track with its history and
+// resets the master length. Levels share their chunks with the take (an overdub copies a chunk
+// before writing it), so a level costs only the chunks an overdub changed.
 //
 // Reverse and half speed (an octave down, twice as long) are playback only; a track can't be
 // overdubbed while either is on. Overdub punches in and out over 5 ms.
@@ -169,6 +176,10 @@ public:
     // whose position (in quarter notes) at the block's first frame is ppq
     void setTransport (double bpm, bool hostRunning, double ppq);
     void setTempo (double bpm) { setTransport (bpm, false, 0.0); }
+    // Transport from the audio thread itself (MIDI control, say): acts at the start of the next
+    // process(), as the transport parameters do, while the looper is on. track -1: the selected
+    // one. Up to 16 a block, with the parameters' (more are dropped).
+    void trigger (Action, int track = -1);
     // In place: the loops are added to the signal, which is recorded. right == nullptr: mono.
     void process (float* left, float* right, int n);
     // The metronome's clicks in the last process() block, in order (none when it's off or gated)
@@ -234,7 +245,7 @@ public:
     void setIdleTimeout (double seconds) { idleTimeout.store ((int64_t) (seconds * 1.0e9)); }
 
 private:
-    enum class Op : int { None, Undo, Redo, Clear, Install };
+    enum class Op : int { None, Undo, Redo, Clear, Wipe, Install }; // Wipe: Clear all's (history too)
 
     struct Mapping // how a voice reads a take
     {
@@ -323,6 +334,7 @@ private:
     void stopTrack (int t);
     void schedule (int t, Op);
     void applyOp (int t);
+    void cancelPending (int t); // the op waiting for the dip is called off
     void finishPending(); // every pending op at once (no audio to dip)
     void pushUndo (int t);
     void clearHistory (int t, bool undoToo);

@@ -189,6 +189,12 @@ void Looper::setPatch (const Patch& p)
     buttonsKnown = true;
 }
 
+void Looper::trigger (Action a, int track)
+{
+    if (numEdgeActions < (int) edgeActions.size())
+        edgeActions[(size_t) numEdgeActions++] = (int) a * 16 + (track >= 0 && track < numTracks ? track : 15); // 15: the selected one
+}
+
 void Looper::setTransport (double bpm, bool hostRunning, double ppq)
 {
     if (! std::isfinite (bpm) || bpm <= 0.0)
@@ -710,12 +716,23 @@ void Looper::doAction (Action a, int t)
                 playAll();
             break;
         }
-        case Action::Undo: if (store->tracks[(size_t) t].undoCount > 0 || tracks[(size_t) t].state == State::Recording) schedule (t, Op::Undo); break;
-        case Action::Redo: if (store->tracks[(size_t) t].redoCount > 0) schedule (t, Op::Redo); break;
+        // Undoing a Clear or Redo still dipping (or redoing an Undo) calls it off: the track comes back up
+        case Action::Undo:
+            if (tracks[(size_t) t].pending == Op::Clear || tracks[(size_t) t].pending == Op::Redo)
+                cancelPending (t);
+            else if (store->tracks[(size_t) t].undoCount > 0 || tracks[(size_t) t].state == State::Recording)
+                schedule (t, Op::Undo);
+            break;
+        case Action::Redo:
+            if (tracks[(size_t) t].pending == Op::Undo)
+                cancelPending (t);
+            else if (store->tracks[(size_t) t].redoCount > 0)
+                schedule (t, Op::Redo);
+            break;
         case Action::Clear: schedule (t, Op::Clear); break;
         case Action::ClearAll:
             for (int i = 0; i < numTracks; ++i)
-                schedule (i, Op::Clear);
+                schedule (i, Op::Wipe);
             break;
         case Action::Play: playTrack (t); break;
         case Action::Stop: stopTrack (t); break;
@@ -1035,6 +1052,14 @@ void Looper::schedule (int t, Op op)
         applyOp (t);
 }
 
+void Looper::cancelPending (int t)
+{
+    auto& tr = tracks[(size_t) t];
+    tr.pending = Op::None;
+    tr.gateTarget = tr.resume ? 1.0f : 0.0f;
+    tr.resume = false;
+}
+
 void Looper::applyOp (int t)
 {
     auto& tr = tracks[(size_t) t];
@@ -1069,9 +1094,18 @@ void Looper::applyOp (int t)
             std::swap (to[(size_t) toCount++], h.current);
             std::swap (h.current, from[(size_t) --fromCount]);
             adopt = before == 0 || h.current.length == 0 || h.current.length != before;
+            if (before == 0 && running())
+                tr.resume = true; // an empty track coming back (a Clear undone) joins the loops playing
             break;
         }
         case Op::Clear:
+            // Undoable: the take becomes an undo level (its memory is held until history is given up)
+            clearHistory (t, false);
+            if (h.current.length > 0)
+                pushUndo (t);
+            h.current.clear (pool);
+            break;
+        case Op::Wipe:
             clearHistory (t, true);
             h.current.clear (pool);
             break;

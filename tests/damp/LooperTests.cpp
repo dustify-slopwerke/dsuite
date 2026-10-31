@@ -449,11 +449,138 @@ TEST_CASE ("looper: a full pool stops the recording cleanly; clear gives it back
     h.run (noise (96000, 5), 96000);
     CHECK (h.status (0).state == State::Playing);
 
+    // Clear keeps the take as an undo level, given up as soon as a recording needs the memory;
+    // Clear all frees everything at once
     h.press (Action::Clear, 0);
     h.silence (4800);
     CHECK (h.status (0).state == State::Empty);
+    CHECK (h.status (0).undoLevels > 0);
+    CHECK (h.looper.status().masterTrack == -1);
+    const int full = h.looper.status().poolFullCount;
+    h.press (Action::Rec, 1);
+    h.run (noise (48000, 6), 48000);
+    h.press (Action::Rec, 1);
+    CHECK (h.status (1).length == 48000);
+    CHECK (h.status (0).undoLevels == 0);
+    CHECK (h.looper.status().poolFullCount == full);
+    h.press (Action::ClearAll, -1);
+    h.silence (4800);
+    CHECK (h.status (0).undoLevels == 0);
+    CHECK (h.status (1).state == State::Empty);
     CHECK (h.looper.status().poolUsedSeconds == 0.0);
     CHECK (h.looper.status().masterTrack == -1);
+}
+
+TEST_CASE ("looper: clear is undoable; clear all empties every track, history and all", "[looper]")
+{
+    Harness h;
+    const auto a = noise (4800, 21), b = noise (9600, 22);
+    recordTrack (h, 0, a);
+    h.silence (4800);
+    h.press (Action::Clear, 0);
+    h.silence (480);
+    CHECK (h.status (0).state == State::Empty);
+    CHECK (h.looper.status().masterLength == 0); // the last track: the master length goes
+
+    // Undo brings it back (stopped, as the master again), redo clears it again
+    h.press (Action::Undo, 0);
+    h.silence (480);
+    CHECK (h.status (0).state == State::Stopped);
+    CHECK (h.status (0).length == 4800);
+    CHECK (h.looper.status().masterTrack == 0);
+    CHECK (h.looper.status().masterLength == 4800);
+    h.press (Action::PlayStop, -1);
+    auto out = h.silence (9600);
+    for (size_t i = 4800; i < out.size(); ++i)
+        REQUIRE (out[i] == a[i % 4800]);
+    h.press (Action::Redo, 0);
+    h.silence (960);
+    CHECK (h.status (0).state == State::Empty);
+    h.press (Action::Undo, 0);
+    h.silence (480);
+    CHECK (h.status (0).length == 4800);
+
+    // Undo pressed while the clear still dips undoes it
+    h.press (Action::PlayStop, -1);
+    h.silence (960);
+    h.press (Action::Clear, 0);
+    h.status (0); // the clear starts its dip
+    h.press (Action::Undo, 0);
+    h.silence (960);
+    CHECK (h.status (0).state == State::Playing);
+    CHECK (h.status (0).length == 4800);
+    h.press (Action::PlayStop, -1);
+    h.silence (480);
+
+    // Clear all: every track, with its undo history, and the master length
+    h.press (Action::PlayStop, -1);
+    recordTrack (h, 1, b);
+    h.press (Action::Rec, 1); // an overdub to undo
+    h.run (noise (9600, 23), 9600);
+    h.press (Action::Rec, 1);
+    h.press (Action::Clear, 0);
+    h.silence (480);
+    h.press (Action::ClearAll, -1);
+    h.silence (480);
+    for (int t = 0; t < Looper::numTracks; ++t)
+    {
+        CHECK (h.status (t).state == State::Empty);
+        CHECK (h.status (t).undoLevels == 0);
+        CHECK (h.status (t).redoLevels == 0);
+    }
+    CHECK (h.looper.status().masterTrack == -1);
+    CHECK (h.looper.status().masterLength == 0);
+    CHECK (h.looper.status().poolUsedSeconds == 0.0);
+    h.press (Action::Undo, 0);
+    CHECK (h.status (0).state == State::Empty);
+
+    // The next recording sets a new master length
+    recordTrack (h, 2, noise (6000, 24));
+    h.silence (64);
+    CHECK (h.looper.status().masterTrack == 2);
+    CHECK (h.looper.status().masterLength == 6000);
+
+    // A track cleared while others play comes back playing with them
+    recordTrack (h, 3, noise (6000, 25));
+    h.silence (6000);
+    h.press (Action::Clear, 3);
+    h.silence (960);
+    CHECK (h.status (3).state == State::Empty);
+    h.press (Action::Undo, 3);
+    h.silence (960);
+    CHECK (h.status (3).state == State::Playing);
+}
+
+TEST_CASE ("looper: undo and redo while playing are click-free and keep the track in time", "[looper]")
+{
+    Harness h;
+    // Whole cycles of each tone in the 4800-frame loop, so the loops themselves never jump
+    const auto a = sine (220.0, 4800), b = sine (330.0, 4800, 0.3f), c = sine (440.0, 4800, 0.3f);
+    recordTrack (h, 0, a);
+    h.press (Action::Rec, 1); // a sync track over it
+    h.run (b, 4800);
+    h.press (Action::Rec, 1);
+    h.silence (9600);
+    const int64_t refAt = h.frame;
+    const auto ref = h.silence (4800); // one cycle of both
+
+    h.press (Action::Rec, 1); // overdub a cycle of the third tone
+    h.run (c, 4800);
+    h.press (Action::Rec, 1);
+    h.silence (2437); // mid-cycle
+    for (const auto action : { Action::Undo, Action::Redo, Action::Undo })
+    {
+        INFO ((int) action);
+        const int64_t at = h.frame;
+        h.press (action, 1);
+        const auto out = h.silence (9600);
+        // The dip (3 ms each way) and the swap: no bigger steps than the tones' own (0.045 at most;
+        // swapping at once would step by up to 0.3)
+        CHECK (maxStep (out) < 0.06f);
+        if (action == Action::Undo)
+            for (size_t i = 480; i < out.size(); ++i) // past the dip, the loops as before the overdub, in time
+                REQUIRE (out[i] == Catch::Approx (ref[(size_t) ((at + (int64_t) i - refAt) % 4800)]).margin (1.0e-6));
+    }
 }
 
 TEST_CASE ("looper: mono output", "[looper]")
@@ -516,8 +643,25 @@ TEST_CASE ("looper: the audio thread doesn't allocate", "[looper]")
     h.press (Action::PlayStop, -1);
     h.press (Action::Clear, 1);
     audio (5000);
-    CHECK (allocations == 0);
+    h.press (Action::Undo, 1); // the clear undone
+    audio (5000);
+    CHECK (h.status (1).state != State::Empty);
+    // Transport from the audio thread
+    counting = true;
+    h.looper.trigger (Action::Rec, 3);
+    counting = false;
+    audio (20000);
+    CHECK (h.status (3).state == State::Recording);
+    counting = true;
+    h.looper.trigger (Action::Rec, 3); // closes at its bar
+    counting = false;
+    audio (5000);
+    CHECK (h.status (3).ending);
     CHECK (h.status (0).state == State::Playing);
+    h.press (Action::ClearAll, -1);
+    audio (5000);
+    CHECK (allocations == 0);
+    CHECK (h.status (0).state == State::Empty);
 }
 
 TEST_CASE ("looper: a session round trip gives identical audio and edits", "[looper]")

@@ -104,6 +104,106 @@ private:
 };
 
 // ======================================================================================
+// The tempo: a bar showing the BPM. Dragging (right or up) moves it 0.5 BPM a pixel, 0.05 with
+// Shift or Ctrl held (which may change mid-drag, with no jump); the wheel moves it 1 BPM a notch,
+// 0.1 with Shift; a double-click types it. The gesture callbacks wrap each drag and wheel step.
+
+class LooperView::TempoSlider final : public juce::Slider
+{
+public:
+    std::function<void()> onGestureStart, onGestureEnd;
+
+    TempoSlider()
+    {
+        setSliderStyle (juce::Slider::LinearBar);
+        setTextBoxIsEditable (false); // a single click mustn't open the editor: a double-click does
+    }
+
+    static constexpr double coarse = 0.5, fine = 0.05, wheelStep = 1.0, wheelFine = 0.1; // BPM
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        dragging = false;
+        last = e.getScreenPosition().toFloat();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! isEnabled())
+            return;
+        const auto at = e.getScreenPosition().toFloat();
+        if (! dragging)
+        {
+            if (e.getDistanceFromDragStart() < 2)
+                return;
+            dragging = true;
+            exact = getValue();
+            last = at;
+            if (onGestureStart)
+                onGestureStart();
+        }
+        const auto moved = (double) ((at.x - last.x) + (last.y - at.y));
+        last = at;
+        const bool slow = e.mods.isShiftDown() || e.mods.isCtrlDown() || e.mods.isCommandDown();
+        exact = std::clamp (exact + moved * (slow ? fine : coarse), getMinimum(), getMaximum());
+        setValue (std::round (exact * 100.0) / 100.0, juce::sendNotificationSync);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (dragging && onGestureEnd)
+            onGestureEnd();
+        dragging = false;
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent&) override
+    {
+        if (! isEnabled())
+            return;
+        setTextBoxIsEditable (true);
+        showTextBox();
+        // Back to read-only once typed (or given up), so single clicks stay drags
+        for (auto* child : getChildren())
+            if (auto* box = dynamic_cast<juce::Label*> (child))
+                box->onEditorHide = [safe = juce::Component::SafePointer<TempoSlider> (this)]
+                {
+                    juce::MessageManager::callAsync ([safe]
+                                                     {
+                                                         if (safe != nullptr)
+                                                             safe->setTextBoxIsEditable (false);
+                                                     });
+                };
+    }
+
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        // The text box passes the wheel on to us twice (as a listener and to its parent)
+        if (! isEnabled() || e.eventTime == lastWheel)
+            return;
+        lastWheel = e.eventTime;
+        const float delta = (std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? -wheel.deltaX : wheel.deltaY) * (wheel.isReversed ? -1.0f : 1.0f);
+        // A trackpad's smooth scrolling comes in small pieces: a step per notch's worth
+        wheelTravel = wheel.isSmooth ? wheelTravel + delta : delta;
+        if (std::abs (wheelTravel) < (wheel.isSmooth ? 0.2f : 1.0e-6f))
+            return;
+        const double step = (e.mods.isShiftDown() ? wheelFine : wheelStep) * (wheelTravel > 0.0f ? 1.0 : -1.0);
+        wheelTravel = 0.0f;
+        if (onGestureStart)
+            onGestureStart();
+        setValue (std::round (std::clamp (getValue() + step, getMinimum(), getMaximum()) * 100.0) / 100.0, juce::sendNotificationSync);
+        if (onGestureEnd)
+            onGestureEnd();
+    }
+
+private:
+    bool dragging = false;
+    juce::Point<float> last;
+    double exact = 0.0;
+    juce::Time lastWheel;
+    float wheelTravel = 0.0f;
+};
+
+// ======================================================================================
 // A transport button: a glyph (record dot, play triangle, stop square) and its name, lit in its
 // colour while that's what the looper is doing
 
@@ -381,6 +481,8 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
         addAndMakeVisible (*l);
     }
     infoLabel.setJustificationType (juce::Justification::centredRight);
+    infoLabel.setMinimumHorizontalScale (0.75f);
+    poolLabel.setMinimumHorizontalScale (0.8f);
 
     rec = std::make_unique<TransportButton> ("Rec", G::Rec, c (recordRed));
     dub = std::make_unique<TransportButton> ("Overdub", G::Dub, c (P::source));
@@ -401,14 +503,18 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
     undo.setTooltip ("Undo the selected track's last recording or overdub");
     redo.setTooltip ("Redo on the selected track");
     clear.setTooltip ("Clear the selected track (undo brings it back)");
+    clearAll.setTooltip ("Clear every track, with their undo history, and the loop length. Click twice: it asks \"Sure?\" first.");
     undo.onClick = [this] { looper.press (Action::Undo, selected); };
     redo.onClick = [this] { looper.press (Action::Redo, selected); };
     clear.onClick = [this] { looper.press (Action::Clear, selected); };
-    for (auto* b : { &undo, &redo, &clear })
+    clearAll.onClick = [this] { clearAllClicked(); };
+    for (auto* b : { &undo, &redo, &clear, &clearAll })
     {
         b->setComponentID ("looper" + b->getButtonText());
         addAndMakeVisible (*b);
     }
+    clearAll.setComponentID ("looperClearAll");
+    clearAll.setColour (juce::TextButton::buttonOnColourId, c (recordRed).withAlpha (0.7f));
 
     // Tempo and metronome
     using PID = damp::PID;
@@ -425,10 +531,16 @@ LooperView::LooperView (DampAudioProcessor& p) : processor (p), looper (p.getLoo
         sl.setColour (juce::Slider::backgroundColourId, c (P::control));
         addAndMakeVisible (sl);
     };
-    bar (bpm, P::envelope, "looperTempo");
-    bpm.setTooltip ("Tempo (BPM): drag, or click to type it. The looper's bars, the click and tempo-synced delays follow it.");
-    bpmAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.apvts, paramId (PID::Tempo), bpm);
-    bpm.setDoubleClickReturnValue (false, 120.0);
+    bpm = std::make_unique<TempoSlider>();
+    bar (*bpm, P::envelope, "looperTempo");
+    bpm->setTooltip ("Tempo (BPM): drag (Shift or Ctrl: finely), scroll (1 BPM; Shift: 0.1), or double-click to type it. The "
+                     "looper's bars, the click and tempo-synced delays follow it.");
+    bpmAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.apvts, paramId (PID::Tempo), *bpm);
+    if (auto* tempo = p.apvts.getParameter (paramId (PID::Tempo)))
+    {
+        bpm->onGestureStart = [tempo] { tempo->beginChangeGesture(); };
+        bpm->onGestureEnd = [tempo] { tempo->endChangeGesture(); };
+    }
     hostTempo.setFont (juce::FontOptions (12.0f));
     hostTempo.setJustificationType (juce::Justification::centred);
     hostTempo.setColour (juce::Label::textColourId, c (P::dimText));
@@ -525,7 +637,7 @@ void LooperView::update()
 void LooperView::updateTempo()
 {
     const bool host = processor.tempoFollowsHost();
-    bpm.setVisible (! host);
+    bpm->setVisible (! host);
     hostTempo.setVisible (host);
     if (host)
         hostTempo.setText (juce::String (processor.getEffectiveTempo(), 2) + " BPM (host)", juce::dontSendNotification);
@@ -591,6 +703,12 @@ void LooperView::updateTransport()
     undo.setEnabled (ready && (s.undoLevels > 0 || s.state == State::Recording));
     redo.setEnabled (ready && s.redoLevels > 0);
     clear.setEnabled (ready && s.state != State::Empty);
+    bool anyHistory = false;
+    for (const auto& t : statuses)
+        anyHistory = anyHistory || t.undoLevels > 0 || t.redoLevels > 0;
+    clearAll.setEnabled (ready && (anyAudio || anyHistory || global.masterLength > 0));
+    if (clearAllAskedAt != 0 && (! clearAll.isEnabled() || juce::Time::getMillisecondCounter() - clearAllAskedAt > clearAllConfirmMs))
+        setClearAllAsking (false);
 
     // Memory, and a warning for a while when a recording stopped because it ran out
     const auto now = juce::Time::getMillisecondCounter();
@@ -637,6 +755,21 @@ void LooperView::updateTransport()
             info << "   (loop " << juce::String (loopBpm, 1) << " BPM)";
     }
     infoLabel.setText (info, juce::dontSendNotification);
+}
+
+void LooperView::clearAllClicked()
+{
+    if (clearAllAskedAt == 0)
+        return setClearAllAsking (true); // the first click only asks
+    setClearAllAsking (false);
+    looper.press (Action::ClearAll);
+}
+
+void LooperView::setClearAllAsking (bool asking)
+{
+    clearAllAskedAt = asking ? juce::jmax (1u, juce::Time::getMillisecondCounter()) : 0;
+    clearAll.setButtonText (asking ? "Sure?" : "Clear all");
+    clearAll.setToggleState (asking, juce::dontSendNotification);
 }
 
 void LooperView::showWavMenu (int track, juce::Component& from)
@@ -694,7 +827,7 @@ void LooperView::resized()
     auto top = area.removeFromTop (transportHeight).reduced (0, 3);
     title.setBounds (top.removeFromLeft (62));
     onSwitch.setBounds (top.removeFromLeft (40));
-    poolLabel.setBounds (top.removeFromLeft (172));
+    poolLabel.setBounds (top.removeFromLeft (150));
     rec->setBounds (top.removeFromLeft (66));
     top.removeFromLeft (4);
     dub->setBounds (top.removeFromLeft (92));
@@ -705,9 +838,11 @@ void LooperView::resized()
     top.removeFromLeft (16);
     for (auto* b : { &undo, &redo, &clear })
     {
-        b->setBounds (top.removeFromLeft (54));
+        b->setBounds (top.removeFromLeft (46));
         top.removeFromLeft (4);
     }
+    top.removeFromLeft (4);
+    clearAll.setBounds (top.removeFromLeft (60));
     infoLabel.setBounds (top.withTrimmedLeft (8));
 
     // Tempo and metronome
@@ -718,8 +853,8 @@ void LooperView::resized()
         row.removeFromLeft (after);
     };
     place (tempoLabel, 48, 2);
-    place (bpm, 96, 0);
-    hostTempo.setBounds (bpm.getBounds());
+    place (*bpm, 96, 0);
+    hostTempo.setBounds (bpm->getBounds());
     row.removeFromLeft (4);
     place (tap, 42);
     place (followHost, 84);
