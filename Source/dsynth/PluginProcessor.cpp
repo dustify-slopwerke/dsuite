@@ -81,13 +81,13 @@ void DsynthAudioProcessor::loadPresetText (const std::string& text)
     {
         const juce::SpinLock::ScopedLockType lock (layerLock);
         layerPatches = { parsed.patch, parsed.hasLayerB ? parsed.layerB : dsynth::Patch::defaults() };
-        swapping = true;
+        ++swapSequence; // odd: swapping
     }
     applyToParameters (parsed.patch, true);
     {
         const juce::SpinLock::ScopedLockType lock (layerLock);
         editLayer = 0;
-        swapping = false;
+        ++swapSequence;
     }
     notifyHostOfNewValues();
 }
@@ -120,13 +120,13 @@ void DsynthAudioProcessor::setEditLayer (int layer)
     {
         const juce::SpinLock::ScopedLockType lock (layerLock);
         layerPatches[(size_t) editLayer.load()] = currentPatch();
-        swapping = true;
+        ++swapSequence; // odd: swapping
     }
     applyToParameters (layerPatches[(size_t) layer], false);
     {
         const juce::SpinLock::ScopedLockType lock (layerLock);
         editLayer = layer;
-        swapping = false;
+        ++swapSequence;
     }
     notifyHostOfNewValues();
 }
@@ -158,7 +158,8 @@ void DsynthAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
 {
     scratchRight.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
     keyboardState.reset();
-    synth.setPatches (currentPatch(), dsynth::Patch::defaults());
+    audioLayers = bothLayers();
+    synth.setPatches (audioLayers[0], audioLayers[1]);
     synth.prepare (sampleRate);
 }
 
@@ -204,12 +205,23 @@ void DsynthAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     {
         const juce::SpinLock::ScopedTryLockType lock (layerLock);
         if (lock.isLocked())
+        {
             audioLayerCache = layerPatches;
+            audioCacheSequence = swapSequence.load(); // can't change while we hold the lock
+        }
     }
+    const int edit = editLayer.load();
     const auto live = currentPatch();
-    auto layers = audioLayerCache;
-    if (! swapping.load())
-        layers[(size_t) editLayer.load()] = live;
+    auto& layers = audioLayers;
+    if (const auto sequence = swapSequence.load(); sequence == audioCacheSequence)
+    {
+        layers = audioLayerCache;
+        if ((sequence & 1) == 0)
+            layers[(size_t) edit] = live;
+        // else mid-swap: both stored patches, not the half-updated parameters
+    }
+    // else a swap started or finished since the cache was taken: the cache, the edit layer or the
+    // parameters just read may belong to either side of it, so keep last block's layers
     for (const auto& info : dsynth::allParams())
         if (info.global)
             layers[0][info.pid] = live[info.pid];
@@ -318,7 +330,7 @@ void DsynthAudioProcessor::setStateInformation (const void* data, int sizeInByte
             const auto parsed = dsynth::parsePreset (layerText);
             layerPatches = { parsed.patch, parsed.hasLayerB ? parsed.layerB : dsynth::Patch::defaults() };
         }
-        swapping = true;
+        ++swapSequence; // odd: swapping
     }
     dustify::removeNanParamValues (*xml);
     apvts.replaceState (juce::ValueTree::fromXml (*xml));
@@ -335,7 +347,7 @@ void DsynthAudioProcessor::setStateInformation (const void* data, int sizeInByte
     {
         const juce::SpinLock::ScopedLockType lock (layerLock);
         editLayer = edit;
-        swapping = false;
+        ++swapSequence;
     }
     notifyHostOfNewValues();
 }

@@ -85,12 +85,16 @@ private:
     dsynth::LayeredSynth synth;
 
     // Stored layer patches. The edit layer's entry is only refreshed when switching layers or
-    // saving; while `swapping`, the audio thread plays both stored patches instead of the
-    // half-updated parameters.
+    // saving; while swapping (swapSequence odd), the audio thread plays both stored patches
+    // instead of the half-updated parameters. swapSequence and editLayer change under layerLock.
     std::array<dsynth::Patch, 2> layerPatches { dsynth::Patch::defaults(), dsynth::Patch::defaults() };
-    std::array<dsynth::Patch, 2> audioLayerCache { dsynth::Patch::defaults(), dsynth::Patch::defaults() };
     std::atomic<int> editLayer { 0 };
-    std::atomic<bool> swapping { false };
+    std::atomic<uint32_t> swapSequence { 0 };
+    // Audio thread: the last copy of layerPatches and the swapSequence it was taken at, and the
+    // layers last played
+    std::array<dsynth::Patch, 2> audioLayerCache { dsynth::Patch::defaults(), dsynth::Patch::defaults() };
+    uint32_t audioCacheSequence = 0;
+    std::array<dsynth::Patch, 2> audioLayers { dsynth::Patch::defaults(), dsynth::Patch::defaults() };
     juce::SpinLock layerLock;
     juce::CriticalSection presetNameLock;
     juce::String currentPresetName;
