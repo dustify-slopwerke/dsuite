@@ -256,6 +256,7 @@ void DpianoAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     if (auto xml = state.createXml())
     {
         xml->setAttribute ("uiScale", juce::String (uiScale, 2));
+        dustify::writePresetSelection (*xml, currentProgram, getCurrentPresetName());
         // The keyboard calibration in use, so the project keeps its feel on another machine
         const auto map = getVelocityMap();
         auto* keyboard = xml->createNewChildElement (keyboardTag);
@@ -274,6 +275,9 @@ void DpianoAudioProcessor::setStateInformation (const void* data, int sizeInByte
 
     uiScale = juce::jlimit (0.6f, 2.0f, (float) xml->getDoubleAttribute ("uiScale", 1.0));
     xml->removeAttribute ("uiScale");
+    juce::String presetName;
+    dustify::readPresetSelection (*xml, getNumPrograms(), currentProgram, presetName);
+    setCurrentPresetName (presetName);
 
     // A session's calibration wins; one saved before calibration existed uses this machine's
     if (auto* keyboard = xml->getChildByName (keyboardTag))

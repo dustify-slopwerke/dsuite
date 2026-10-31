@@ -6,6 +6,7 @@
 #include "dsp/Preset.h"
 
 #include "common/plugin/ParamLayout.h"
+#include "common/plugin/PresetHost.h"
 
 using dustify::toJuce;
 
@@ -280,6 +281,7 @@ void DsynthAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     if (auto xml = state.createXml())
     {
+        dustify::writePresetSelection (*xml, currentProgram, getCurrentPresetName());
         auto* layersXml = xml->createNewChildElement ("DSYNTH_LAYERS");
         layersXml->setAttribute ("edit", editLayer.load());
         layersXml->setAttribute ("uiScale", juce::String (uiScale, 2));
@@ -293,6 +295,10 @@ void DsynthAudioProcessor::setStateInformation (const void* data, int sizeInByte
     auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
         return;
+
+    juce::String presetName;
+    dustify::readPresetSelection (*xml, getNumPrograms(), currentProgram, presetName);
+    setCurrentPresetName (presetName);
 
     std::string layerText;
     int edit = 0;

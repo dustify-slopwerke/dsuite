@@ -226,8 +226,9 @@ Preset files can be copied into this folder by hand; the list is read when the e
 
 ## Session state
 
-The host session stores every parameter, the keyboard calibration and the editor size. Saving a loaded session again
-gives identical data.
+The host session stores every parameter, the keyboard calibration, the editor size and the current
+preset (program number and name; reopening shows it without loading it over the session's values).
+Saving a loaded session again gives identical data.
 
 ## CPU
 

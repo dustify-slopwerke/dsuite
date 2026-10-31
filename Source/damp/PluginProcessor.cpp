@@ -546,6 +546,7 @@ void DampAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         xml->setAttribute ("tunerMute", tunerMute.load() ? 1 : 0);
         xml->setAttribute ("tunerA4", juce::String (tunerReference.load(), 1));
         xml->setAttribute ("board", juce::String (getBoard().format()));
+        dustify::writePresetSelection (*xml, currentProgram, getCurrentPresetName());
 
         // A user IR travels with the session, so projects stay portable
         double rate = 0.0;
@@ -601,6 +602,9 @@ void DampAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
     xml->removeAttribute ("tunerMute");
     xml->removeAttribute ("tunerA4");
     xml->removeAttribute ("board");
+    juce::String presetName;
+    dustify::readPresetSelection (*xml, getNumPrograms(), currentProgram, presetName);
+    setCurrentPresetName (presetName);
 
     std::vector<float> samples;
     juce::String irName;

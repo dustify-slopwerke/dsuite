@@ -323,6 +323,9 @@ The preset menu groups the factory presets by category. Files saved by the user 
 Song presets are approximations of the synth parts on the original recordings. They are named
 "Song (Synth)" or "Song (Part)", for example *Axel F (Jupiter-8 Lead)* or *Holiday (Bass)*.
 
+The session stores the current preset (program number and name): reopening it shows that preset
+without loading it again over the session's own values.
+
 ### User presets
 
 **Save** opens a file dialog in the user preset folder. The menu lists every `*.dsynth` file in

@@ -386,5 +386,8 @@ delay_sync = 1/8.
 
 ## Saved with the session
 
-Parameters (including Master, tempo and click), pedal order, the loaded IR, tuner mute and reference pitch, window size, and the
-looper's audio and edits.
+Parameters (including Master, tempo and click), pedal order, the loaded IR, tuner mute and reference pitch, window size, the
+current preset (the program number and the name in the preset bar), and the looper's audio and
+edits.
+- Reopening a session shows the preset it was saved with, but keeps the session's own values
+  (the preset is not loaded again over any edits made after choosing it).

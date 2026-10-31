@@ -34,6 +34,25 @@ public:
     virtual juce::String presetFileExtension() const = 0; // without the dot
 };
 
+// The preset selection in session state: the program (factory preset index) and the name the
+// preset bar shows (a user preset's too), as attributes of the state's XML. Restoring brings back
+// only the selection, never the preset itself: the session's parameter values stand. A session
+// saved before these existed restores program 0 and no name.
+inline void writePresetSelection (juce::XmlElement& xml, int program, const juce::String& name)
+{
+    xml.setAttribute ("program", program);
+    xml.setAttribute ("presetName", name);
+}
+
+// Takes the attributes out of `xml` (before it becomes the parameters' state)
+inline void readPresetSelection (juce::XmlElement& xml, int numPrograms, int& program, juce::String& name)
+{
+    program = juce::jlimit (0, juce::jmax (0, numPrograms - 1), xml.getIntAttribute ("program", 0));
+    name = xml.getStringAttribute ("presetName");
+    xml.removeAttribute ("program");
+    xml.removeAttribute ("presetName");
+}
+
 // Factory presets embedded with juce_add_binary_data, in filename order (files are named so they
 // sort into category order). parse (text) returns { name, category }.
 template <typename Parse>

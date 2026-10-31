@@ -168,6 +168,54 @@ void checkTextRoundTrips()
         }
     }
 }
+
+// The current program travels with the session (as pluginval's: setCurrentProgram, save, load,
+// getCurrentProgram), with the preset name shown, but loading it doesn't load the preset again:
+// the session's own values stand
+void checkProgramInState()
+{
+    auto a = createPlugin();
+    a->prepareToPlay (48000.0, 256);
+    const int programs = a->getNumPrograms();
+    if (programs < 2)
+        return fail ("expected factory presets as programs");
+    auto savedName = [] (const juce::MemoryBlock& state)
+    {
+        const auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
+        return xml == nullptr ? juce::String ("(no XML)") : xml->getStringAttribute ("presetName");
+    };
+    for (const int program : { 1, programs - 1, 0 })
+    {
+        a->setCurrentProgram (program);
+        // An edit after choosing it: the session keeps the edited value
+        auto* edited = a->getParameters()[3];
+        const float value = edited->getValue() < 0.5f ? 0.9f : 0.1f;
+        edited->setValueNotifyingHost (value);
+        const auto text = edited->getText (edited->getValue(), 64);
+        juce::MemoryBlock state;
+        a->getStateInformation (state);
+
+        // The same instance (pluginval), and a fresh one (a project reopened)
+        auto fresh = createPlugin();
+        fresh->prepareToPlay (48000.0, 256);
+        for (auto* b : { a.get(), fresh.get() })
+        {
+            if (b == a.get())
+                b->setCurrentProgram (program == 0 ? 1 : 0);
+            b->setStateInformation (state.getData(), (int) state.getSize());
+            if (b->getCurrentProgram() != program)
+                fail ("program " + juce::String (program) + " restored as " + juce::String (b->getCurrentProgram()));
+            if (const auto now = b->getParameters()[3]->getText (b->getParameters()[3]->getValue(), 64); now != text)
+                fail ("restoring program " + juce::String (program) + " loaded the preset over the session: " + edited->getName (64)
+                      + " " + text + " -> " + now);
+            juce::MemoryBlock again;
+            b->getStateInformation (again);
+            if (savedName (again) != a->getProgramName (program) || savedName (again) != savedName (state))
+                fail ("preset name after restoring program " + juce::String (program) + ": " + savedName (again) + ", expected "
+                      + a->getProgramName (program));
+        }
+    }
+}
 #if DUSTIFY_CHECKS_DPIANO
 // dpiano's keyboard calibration: kept in the session, and an old session without it uses the
 // machine-wide settings file (here in a temporary DUSTIFY_SETTINGS_DIR)
@@ -687,6 +735,7 @@ int main (int argc, char** argv)
     checkStateRoundTrip (false);
     checkStateRoundTrip (true);
     checkTextRoundTrips();
+    checkProgramInState();
 #if DUSTIFY_CHECKS_DAMP
     checkImpulseInState();
     checkBoardOrder();
